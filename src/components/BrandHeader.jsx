@@ -10,10 +10,6 @@ const BrandHeader = ({ theme, toggleTheme }) => {
         </div>
         <div className="brand-title">
           <span>Balaji CRM</span>
-          <span className="ai-pill-tag">
-            <Sparkles size={11} style={{ display: 'inline', marginRight: '3px' }} />
-            AI Platform
-          </span>
         </div>
       </div>
 

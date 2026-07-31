@@ -85,7 +85,7 @@ const LoginForm = ({ onLoginSuccess }) => {
             <>
               <div className="auth-header">
                 <h2 className="auth-title">Welcome to Balaji CRM</h2>
-                <p className="auth-subtitle">AI-Powered Customer Relationship Management</p>
+                <p className="auth-subtitle">Customer Relationship Management</p>
               </div>
 
               {/* Admin Access Restriction Notice (Strictly NO SIGNUP) */}
