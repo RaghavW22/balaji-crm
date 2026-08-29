@@ -60,7 +60,8 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
 
   // API Integration Modals & Keys
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [indiamartKey, setIndiamartKey] = useState('');
+  const [emailAddress, setEmailAddress] = useState('');
+  const [emailPassword, setEmailPassword] = useState('');
   const [whatsappToken, setWhatsappToken] = useState('');
   const [whatsappPhoneId, setWhatsappPhoneId] = useState('');
 
@@ -105,8 +106,8 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
   // Demo Buyer Inquiries illustrating Automated WhatsApp Business Template Replies
   const sampleInquiriesData = [
     {
-      id: "im-lead-1",
-      query_id: "IMQ123456789",
+      id: "em-lead-1",
+      query_id: "EMQ123456789",
       timestamp: new Date().toISOString(),
       buyer: {
         name: "Rahul Sharma",
@@ -121,7 +122,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
         quantity: "10 units",
         requirement_details: "Need heavy duty 3-phase pump for factory installation."
       },
-      lead_source: "IndiaMART Push API",
+      lead_source: "Email Ingestion (IMAP)",
       status: { is_new: true, is_verified: true },
       whatsappStatus: {
         sent: true,
@@ -134,8 +135,8 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
       }
     },
     {
-      id: "im-lead-2",
-      query_id: "IMQ987654321",
+      id: "em-lead-2",
+      query_id: "EMQ987654321",
       timestamp: new Date(Date.now() - 3600000).toISOString(),
       buyer: {
         name: "Vikram Mehta",
@@ -150,7 +151,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
         quantity: "2 units",
         requirement_details: "Looking for 50T hydraulic press machine with automatic feeder."
       },
-      lead_source: "IndiaMART Push API",
+      lead_source: "Email Ingestion (IMAP)",
       status: { is_new: true, is_verified: true },
       whatsappStatus: {
         sent: false,
@@ -197,7 +198,8 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
     setIsLoading(true);
     setIsProductsLoading(true);
 
-    setIndiamartKey(localStorage.getItem('indiamart_api_key') || '');
+    setEmailAddress(localStorage.getItem('email_address') || '');
+    setEmailPassword(localStorage.getItem('email_password') || '');
     setWhatsappToken(localStorage.getItem('whatsapp_access_token') || '');
     setWhatsappPhoneId(localStorage.getItem('whatsapp_phone_id') || '');
 
@@ -213,7 +215,8 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
       // 1. Sync API Keys & Settings from Firestore Database
       const settingsRes = await fetchApiSettingsFromFirestore(user.uid);
       if (settingsRes.success && settingsRes.data) {
-        if (settingsRes.data.indiamartKey !== undefined) setIndiamartKey(settingsRes.data.indiamartKey);
+        if (settingsRes.data.emailAddress !== undefined) setEmailAddress(settingsRes.data.emailAddress);
+        if (settingsRes.data.emailPassword !== undefined) setEmailPassword(settingsRes.data.emailPassword);
         if (settingsRes.data.whatsappToken !== undefined) setWhatsappToken(settingsRes.data.whatsappToken);
         if (settingsRes.data.whatsappPhoneId !== undefined) setWhatsappPhoneId(settingsRes.data.whatsappPhoneId);
         if (settingsRes.data.isAutoReplyEnabled !== undefined) {
@@ -266,6 +269,13 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
 
   useEffect(() => {
     loadDashboardData();
+
+    // Set up automated email lead polling loop (runs every 60 seconds / 1 minute)
+    const intervalId = setInterval(() => {
+      loadDashboardData();
+    }, 60000);
+
+    return () => clearInterval(intervalId);
   }, [isSettingsOpen, user]);
 
   const handleSignOut = async () => {
@@ -556,7 +566,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                 >
                   <Settings size={18} />
                   <span>API Settings</span>
-                  {(!indiamartKey || !whatsappToken) && (
+                  {(!emailAddress || !emailPassword || !whatsappToken) && (
                     <span className="sidebar-badge" style={{ background: 'rgba(245, 158, 11, 0.2)', color: 'var(--accent-amber)', borderColor: 'rgba(245, 158, 11, 0.3)' }}>
                       Setup
                     </span>
@@ -589,40 +599,77 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                 <div className="hero-welcome">
                   <h1>Welcome to Seller Dashboard</h1>
                   <p>
-                    Automated catalog matching and WhatsApp Business API responses for IndiaMart buyer requests.
+                    Automated catalog matching and WhatsApp Business API responses for email buyer requests (auto-fetched every 1 minute).
                   </p>
                 </div>
 
                 {/* Master Auto-Reply Status Control Card */}
-                <div style={{ background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', padding: '0.85rem 1.25rem', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Auto-Reply Engine</div>
-                    <div style={{ fontSize: '0.95rem', fontWeight: '800', color: isAutoReplyEnabled ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
-                      {isAutoReplyEnabled ? "🟢 ACTIVE (RUNNING)" : "🔴 STOPPED (PAUSED)"}
+                <div style={{ 
+                  background: 'var(--glass-bg)', 
+                  border: `1px solid ${isAutoReplyEnabled ? 'rgba(16, 185, 129, 0.35)' : 'rgba(244, 63, 94, 0.35)'}`, 
+                  padding: '0.85rem 1.25rem', 
+                  borderRadius: 'var(--radius-md)', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '1.25rem',
+                  boxShadow: isAutoReplyEnabled ? '0 0 15px rgba(16, 185, 129, 0.1)' : 'none'
+                }}>
+                  <div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: '700', marginBottom: '4px' }}>
+                      Automated WhatsApp Reply Engine
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span 
+                        className={`score-badge ${isAutoReplyEnabled ? 'score-high' : 'score-low'}`} 
+                        style={{ 
+                          fontSize: '0.82rem', 
+                          padding: '0.25rem 0.65rem', 
+                          fontWeight: '800', 
+                          display: 'inline-flex', 
+                          alignItems: 'center', 
+                          gap: '0.4rem',
+                          background: isAutoReplyEnabled ? 'rgba(16, 185, 129, 0.15)' : 'rgba(244, 63, 94, 0.15)',
+                          color: isAutoReplyEnabled ? 'var(--accent-emerald)' : 'var(--accent-rose)',
+                          borderColor: isAutoReplyEnabled ? 'rgba(16, 185, 129, 0.4)' : 'rgba(244, 63, 94, 0.4)'
+                        }}
+                      >
+                        <span style={{ 
+                          width: '8px', 
+                          height: '8px', 
+                          borderRadius: '50%', 
+                          background: isAutoReplyEnabled ? 'var(--accent-emerald)' : 'var(--accent-rose)', 
+                          display: 'inline-block',
+                          boxShadow: isAutoReplyEnabled ? '0 0 8px var(--accent-emerald)' : 'none'
+                        }}></span>
+                        STATUS: {isAutoReplyEnabled ? 'RUNNING' : 'STOPPED'}
+                      </span>
                     </div>
                   </div>
 
                   <button
                     onClick={toggleAutoReplySystem}
+                    type="button"
                     className={isAutoReplyEnabled ? "btn-secondary" : "btn-primary"}
                     style={{
-                      padding: '0.5rem 1rem',
+                      padding: '0.55rem 1.1rem',
                       fontSize: '0.82rem',
+                      fontWeight: '700',
                       width: 'auto',
-                      borderColor: isAutoReplyEnabled ? 'var(--accent-rose)' : 'none',
+                      borderColor: isAutoReplyEnabled ? 'rgba(244, 63, 94, 0.5)' : 'none',
                       color: isAutoReplyEnabled ? 'var(--accent-rose)' : '#fff',
-                      background: isAutoReplyEnabled ? 'rgba(244, 63, 94, 0.12)' : 'linear-gradient(135deg, var(--accent-emerald), #059669)'
+                      background: isAutoReplyEnabled ? 'rgba(244, 63, 94, 0.1)' : 'linear-gradient(135deg, var(--accent-emerald), #059669)',
+                      transition: 'all 0.2s ease'
                     }}
                   >
                     {isAutoReplyEnabled ? (
                       <>
                         <Pause size={15} />
-                        <span>STOP AUTO-REPLY</span>
+                        <span>Pause Auto-Reply</span>
                       </>
                     ) : (
                       <>
                         <Play size={15} />
-                        <span>START AUTO-REPLY</span>
+                        <span>Start Auto-Reply</span>
                       </>
                     )}
                   </button>
@@ -638,7 +685,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                   </div>
                   <div>
                     <div className="kpi-val">{inquiries.length}</div>
-                    <div className="kpi-label">IndiaMart Requests</div>
+                    <div className="kpi-label">Email Inquiries</div>
                     <div className="kpi-trend up">
                       <Clock size={12} /> Active (&lt; 7 Days)
                     </div>
@@ -660,15 +707,15 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
 
                 <div className="kpi-card" onClick={() => setIsSettingsOpen(true)} style={{ cursor: 'pointer' }}>
                   <div className="kpi-icon-box" style={{ background: 'rgba(99, 102, 241, 0.15)', color: 'var(--accent-primary)' }}>
-                    <Cpu size={24} />
+                    <Mail size={24} />
                   </div>
                   <div>
-                    <div className="kpi-val" style={{ fontSize: '1.2rem', color: indiamartKey ? 'var(--accent-emerald)' : 'var(--accent-amber)' }}>
-                      {indiamartKey ? 'Connected' : 'Missing Key'}
+                    <div className="kpi-val" style={{ fontSize: '1.2rem', color: (emailAddress && emailPassword) ? 'var(--accent-emerald)' : 'var(--accent-amber)' }}>
+                      {(emailAddress && emailPassword) ? 'Connected' : 'Missing Password'}
                     </div>
-                    <div className="kpi-label">IndiaMart Push API</div>
+                    <div className="kpi-label">Email Lead Fetcher</div>
                     <div className="kpi-trend neutral">
-                      {indiamartKey ? '● Real-Time Sync' : '⚠ Action Required'}
+                      {(emailAddress && emailPassword) ? '● Polling Every 1 Min' : '⚠ Setup Required'}
                     </div>
                   </div>
                 </div>
@@ -696,8 +743,8 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                 <div className="section-panel">
                   <div className="panel-header">
                     <div className="panel-title">
-                      <ShoppingBag size={20} style={{ color: 'var(--accent-cyan)' }} />
-                      <span>Recent IndiaMart Buyer Inquiries</span>
+                      <Mail size={20} style={{ color: 'var(--accent-cyan)' }} />
+                      <span>Recent Email Buyer Inquiries</span>
                     </div>
                     <button
                       className="btn-secondary"
@@ -799,16 +846,16 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
             </div>
           )}
 
-          {/* VIEW 2: PRODUCT REQUESTS (INDIAMART) TAB */}
+          {/* VIEW 2: PRODUCT REQUESTS (EMAIL INGESTION) TAB */}
           {activeTab === 'requests' && (
             <div className="section-panel">
               <div className="panel-header" style={{ flexWrap: 'wrap', gap: '1rem' }}>
                 <div className="panel-title">
-                  <ShoppingBag size={22} style={{ color: 'var(--accent-cyan)' }} />
+                  <Mail size={22} style={{ color: 'var(--accent-cyan)' }} />
                   <div>
-                    <div style={{ fontSize: '1.2rem', fontWeight: '800' }}>IndiaMart Product Requests ({filteredInquiries.length})</div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: '800' }}>Email Product Inquiries ({filteredInquiries.length})</div>
                     <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: '400' }}>
-                      Automated Catalog Matching &amp; WhatsApp Business Template Dispatch Status
+                      Automated Catalog Matching &amp; WhatsApp Business Template Dispatch for Email Leads
                     </div>
                   </div>
                 </div>
@@ -832,7 +879,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                 <div style={{ marginTop: '1.25rem', background: 'rgba(244, 63, 94, 0.1)', border: '1px solid rgba(244, 63, 94, 0.3)', padding: '0.85rem 1.1rem', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', color: 'var(--accent-rose)', fontSize: '0.85rem', fontWeight: '700' }}>
                     <AlertTriangle size={18} />
-                    <span>Auto-Reply System is currently STOPPED. Incoming IndiaMart leads will NOT receive automated WhatsApp replies.</span>
+                    <span>Auto-Reply System is currently STOPPED. Incoming email leads will NOT receive automated WhatsApp replies.</span>
                   </div>
                   <button
                     onClick={toggleAutoReplySystem}
@@ -860,7 +907,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                   <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: '480px', margin: '0 auto' }}>
                     {searchQuery.trim()
                       ? `No requests match "${searchQuery}". Try searching with another name or keyword.`
-                      : "Incoming buyer inquiries from IndiaMart will automatically appear here."}
+                      : "Incoming buyer inquiries from email will automatically appear here every 1 minute."}
                   </p>
                 </div>
               ) : (
@@ -1289,7 +1336,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                 <div>
                   <h3 className="modal-title" style={{ fontSize: '1.2rem' }}>Product Request Details</h3>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                    Query ID: <span style={{ color: 'var(--accent-cyan)', fontWeight: '700' }}>{activeInquiryModal.query_id}</span> • Source: {activeInquiryModal.lead_source || 'IndiaMART'}
+                    Query ID: <span style={{ color: 'var(--accent-cyan)', fontWeight: '700' }}>{activeInquiryModal.query_id}</span> • Source: {activeInquiryModal.lead_source || 'Email Ingestion'}
                   </div>
                 </div>
               </div>

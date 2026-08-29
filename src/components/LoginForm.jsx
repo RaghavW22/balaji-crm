@@ -13,9 +13,13 @@ const LoginForm = ({ onLoginSuccess }) => {
   
   const [password, setPassword] = useState('');
   
-  // Remember Me checkbox state (defaults to true if a remembered email exists)
+  // Remember Me checkbox state (restores saved preference or defaults to true if email exists)
   const [rememberMe, setRememberMe] = useState(() => {
-    return localStorage.getItem('remembered_email') !== null ? true : true;
+    const savedFlag = localStorage.getItem('remember_me_checked');
+    if (savedFlag !== null) {
+      return savedFlag === 'true';
+    }
+    return Boolean(localStorage.getItem('remembered_email'));
   });
   
   const [showPassword, setShowPassword] = useState(false);

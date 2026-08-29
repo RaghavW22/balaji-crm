@@ -64,8 +64,10 @@ export const loginUser = async (email, password, rememberMe = true) => {
     
     if (rememberMe) {
       localStorage.setItem('remembered_email', email);
+      localStorage.setItem('remember_me_checked', 'true');
     } else {
       localStorage.removeItem('remembered_email');
+      localStorage.setItem('remember_me_checked', 'false');
     }
 
     return { success: true, user: userCredential.user };
@@ -131,7 +133,7 @@ export const fetchApiSettingsFromFirestore = async (userId) => {
 };
 
 /**
- * Add an IndiaMart Buyer Product Request to Firestore Database
+ * Add an Email Buyer Product Request to Firestore Database
  */
 export const saveLeadToFirestore = async (userId, leadData) => {
   try {
@@ -148,7 +150,7 @@ export const saveLeadToFirestore = async (userId, leadData) => {
 };
 
 /**
- * Fetch all IndiaMart Product Requests from Firestore Database
+ * Fetch all Email Buyer Product Requests from Firestore Database
  * Automatically filters & deletes items older than 7 days from the database.
  */
 export const fetchLeadsFromFirestore = async (userId) => {

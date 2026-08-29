@@ -4,7 +4,7 @@ import {
   Settings, 
   Key, 
   MessageSquare, 
-  ShoppingBag, 
+  Mail, 
   Save, 
   CheckCircle2, 
   Trash2, 
@@ -16,18 +16,22 @@ import {
   Smartphone,
   Zap,
   Check,
-  ArrowRight
+  ArrowRight,
+  Lock,
+  Server,
+  Clock
 } from 'lucide-react';
 import { saveApiSettingsToFirestore, fetchApiSettingsFromFirestore, clearAllLeadsFromFirestore } from '../firebaseConfig';
 
 const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
   if (!isOpen) return null;
 
-  // IndiaMart Push API Integration State
-  const [indiamartKey, setIndiamartKey] = useState('');
-  const [indiamartMobile, setIndiamartMobile] = useState('');
-  const [indiamartWebhookSecret, setIndiamartWebhookSecret] = useState('');
-  const [indiamartWebhookUrl, setIndiamartWebhookUrl] = useState('');
+  // Email Ingestion Integration State (Auto-fetch every 1-2 mins)
+  const [emailAddress, setEmailAddress] = useState('');
+  const [emailPassword, setEmailPassword] = useState('');
+  const [imapHost, setImapHost] = useState('imap.gmail.com');
+  const [imapPort, setImapPort] = useState('993');
+  const [fetchIntervalMinutes, setFetchIntervalMinutes] = useState('1');
 
   // WhatsApp Business Cloud API Integration State
   const [whatsappToken, setWhatsappToken] = useState('');
@@ -43,19 +47,20 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
   const [dbSynced, setDbSynced] = useState(false);
   const [isClearingLeads, setIsClearingLeads] = useState(false);
 
-  // Active Settings Tab ('indiamart' | 'whatsapp')
-  const [activeTab, setActiveTab] = useState('indiamart');
+  // Active Settings Tab ('email' | 'whatsapp')
+  const [activeTab, setActiveTab] = useState('email');
 
   // Load saved credentials from Firestore Database (or localStorage fallback)
   useEffect(() => {
     let isMounted = true;
 
     const loadSettings = async () => {
-      // IndiaMart local fallbacks
-      setIndiamartKey(localStorage.getItem('indiamart_api_key') || '');
-      setIndiamartMobile(localStorage.getItem('indiamart_mobile') || '');
-      setIndiamartWebhookSecret(localStorage.getItem('indiamart_webhook_secret') || '');
-      setIndiamartWebhookUrl(localStorage.getItem('indiamart_webhook_url') || 'https://balajicrm.web.app/api/indiamart-push');
+      // Email Ingestion local fallbacks
+      setEmailAddress(localStorage.getItem('email_address') || '');
+      setEmailPassword(localStorage.getItem('email_password') || '');
+      setImapHost(localStorage.getItem('imap_host') || 'imap.gmail.com');
+      setImapPort(localStorage.getItem('imap_port') || '993');
+      setFetchIntervalMinutes(localStorage.getItem('fetch_interval_minutes') || '1');
 
       // WhatsApp local fallbacks
       setWhatsappToken(localStorage.getItem('whatsapp_access_token') || '');
@@ -68,10 +73,11 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
       if (user && user.uid) {
         const res = await fetchApiSettingsFromFirestore(user.uid);
         if (res.success && res.data && isMounted) {
-          if (res.data.indiamartKey !== undefined) setIndiamartKey(res.data.indiamartKey);
-          if (res.data.indiamartMobile !== undefined) setIndiamartMobile(res.data.indiamartMobile);
-          if (res.data.indiamartWebhookSecret !== undefined) setIndiamartWebhookSecret(res.data.indiamartWebhookSecret);
-          if (res.data.indiamartWebhookUrl !== undefined) setIndiamartWebhookUrl(res.data.indiamartWebhookUrl);
+          if (res.data.emailAddress !== undefined) setEmailAddress(res.data.emailAddress);
+          if (res.data.emailPassword !== undefined) setEmailPassword(res.data.emailPassword);
+          if (res.data.imapHost !== undefined) setImapHost(res.data.imapHost);
+          if (res.data.imapPort !== undefined) setImapPort(res.data.imapPort);
+          if (res.data.fetchIntervalMinutes !== undefined) setFetchIntervalMinutes(res.data.fetchIntervalMinutes);
 
           if (res.data.whatsappToken !== undefined) setWhatsappToken(res.data.whatsappToken);
           if (res.data.whatsappPhoneId !== undefined) setWhatsappPhoneId(res.data.whatsappPhoneId);
@@ -94,12 +100,12 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
     setIsSaving(true);
 
     const settingsData = {
-      // IndiaMart Integration Payload (Sync Mode Always Real-Time Push)
-      indiamartKey: indiamartKey.trim(),
-      indiamartMobile: indiamartMobile.trim(),
-      indiamartWebhookSecret: indiamartWebhookSecret.trim(),
-      indiamartWebhookUrl: indiamartWebhookUrl.trim(),
-      indiamartSyncMode: 'push', // Always Real-time Push
+      // Email Integration Payload (Auto Fetch every 1-2 mins)
+      emailAddress: emailAddress.trim(),
+      emailPassword: emailPassword.trim(),
+      imapHost: imapHost.trim(),
+      imapPort: imapPort.trim(),
+      fetchIntervalMinutes: fetchIntervalMinutes.trim(),
 
       // WhatsApp Business Integration Payload
       whatsappToken: whatsappToken.trim(),
@@ -111,11 +117,11 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
     };
 
     // Save to LocalStorage
-    localStorage.setItem('indiamart_api_key', settingsData.indiamartKey);
-    localStorage.setItem('indiamart_mobile', settingsData.indiamartMobile);
-    localStorage.setItem('indiamart_webhook_secret', settingsData.indiamartWebhookSecret);
-    localStorage.setItem('indiamart_webhook_url', settingsData.indiamartWebhookUrl);
-    localStorage.setItem('indiamart_sync_mode', 'push');
+    localStorage.setItem('email_address', settingsData.emailAddress);
+    localStorage.setItem('email_password', settingsData.emailPassword);
+    localStorage.setItem('imap_host', settingsData.imapHost);
+    localStorage.setItem('imap_port', settingsData.imapPort);
+    localStorage.setItem('fetch_interval_minutes', settingsData.fetchIntervalMinutes);
 
     localStorage.setItem('whatsapp_access_token', settingsData.whatsappToken);
     localStorage.setItem('whatsapp_phone_id', settingsData.whatsappPhoneId);
@@ -141,20 +147,23 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
 
   // Button 1: Clear Stored API Keys
   const handleClearApiKeys = async () => {
-    if (window.confirm("Clear all stored integration keys (IndiaMart & WhatsApp) from settings?")) {
-      localStorage.removeItem('indiamart_api_key');
-      localStorage.removeItem('indiamart_mobile');
-      localStorage.removeItem('indiamart_webhook_secret');
-      localStorage.removeItem('indiamart_webhook_url');
+    if (window.confirm("Clear all stored integration credentials (Email & WhatsApp) from settings?")) {
+      localStorage.removeItem('email_address');
+      localStorage.removeItem('email_password');
+      localStorage.removeItem('imap_host');
+      localStorage.removeItem('imap_port');
+      localStorage.removeItem('fetch_interval_minutes');
       localStorage.removeItem('whatsapp_access_token');
       localStorage.removeItem('whatsapp_phone_id');
       localStorage.removeItem('whatsapp_waba_id');
       localStorage.removeItem('whatsapp_template_name');
       localStorage.removeItem('whatsapp_sender_number');
 
-      setIndiamartKey('');
-      setIndiamartMobile('');
-      setIndiamartWebhookSecret('');
+      setEmailAddress('');
+      setEmailPassword('');
+      setImapHost('imap.gmail.com');
+      setImapPort('993');
+      setFetchIntervalMinutes('1');
       setWhatsappToken('');
       setWhatsappPhoneId('');
       setWhatsappWabaId('');
@@ -162,22 +171,24 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
 
       if (user && user.uid) {
         await saveApiSettingsToFirestore(user.uid, {
-          indiamartKey: '',
-          indiamartMobile: '',
-          indiamartWebhookSecret: '',
+          emailAddress: '',
+          emailPassword: '',
+          imapHost: 'imap.gmail.com',
+          imapPort: '993',
+          fetchIntervalMinutes: '1',
           whatsappToken: '',
           whatsappPhoneId: '',
           whatsappWabaId: '',
           whatsappSenderNumber: ''
         });
       }
-      alert("Stored API Credentials cleared successfully!");
+      alert("Stored Integration Credentials cleared successfully!");
     }
   };
 
   // Button 2: Clear Product Requests Database
   const handleClearDatabaseRecords = async () => {
-    if (window.confirm("Clear all IndiaMart Product Request records from the Database?")) {
+    if (window.confirm("Clear all Product Request records from the Database?")) {
       setIsClearingLeads(true);
 
       if (user && user.uid) {
@@ -222,20 +233,20 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '0.75rem' }}>
           <button
             type="button"
-            className={`btn-secondary ${activeTab === 'indiamart' ? 'active' : ''}`}
+            className={`btn-secondary ${activeTab === 'email' ? 'active' : ''}`}
             style={{
               flex: 1,
               padding: '0.65rem 0.85rem',
               fontSize: '0.88rem',
-              borderColor: activeTab === 'indiamart' ? 'var(--accent-cyan)' : 'var(--glass-border)',
-              background: activeTab === 'indiamart' ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
-              color: activeTab === 'indiamart' ? 'var(--text-primary)' : 'var(--text-secondary)',
+              borderColor: activeTab === 'email' ? 'var(--accent-cyan)' : 'var(--glass-border)',
+              background: activeTab === 'email' ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
+              color: activeTab === 'email' ? 'var(--text-primary)' : 'var(--text-secondary)',
               fontWeight: '700'
             }}
-            onClick={() => setActiveTab('indiamart')}
+            onClick={() => setActiveTab('email')}
           >
-            <ShoppingBag size={16} style={{ color: 'var(--accent-cyan)' }} />
-            <span>IndiaMart Push API</span>
+            <Mail size={16} style={{ color: 'var(--accent-cyan)' }} />
+            <span>Email Ingestion (1 Min)</span>
           </button>
 
           <button
@@ -266,120 +277,121 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
 
         <form onSubmit={handleSave}>
           
-          {/* TAB 1: INDIAMART PUSH API CONFIGURATION */}
-          {activeTab === 'indiamart' && (
+          {/* TAB 1: EMAIL INGESTION & PASSWORD CONFIGURATION */}
+          {activeTab === 'email' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
               
-              {/* Sync Mode Badge */}
+              {/* Sync Frequency Badge */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(6, 182, 212, 0.1)', padding: '0.6rem 1rem', borderRadius: 'var(--radius-md)', border: '1px solid rgba(6, 182, 212, 0.25)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', fontWeight: '700', color: 'var(--accent-cyan)' }}>
-                  <Zap size={16} />
-                  <span>Sync Mode: Real-Time Instant Push (Automatic)</span>
+                  <Clock size={16} />
+                  <span>Auto-Fetching Email Leads: Every 1 Minute</span>
                 </div>
-                <span className="score-badge score-high" style={{ fontSize: '0.7rem' }}>Realtime Active</span>
+                <span className="score-badge score-high" style={{ fontSize: '0.7rem' }}>Polling Active (1 Min)</span>
               </div>
 
-              {/* Simple Step-by-Step Setup Guide Card */}
+              {/* Step-by-Step Setup Guide Card for Email */}
               <div style={{ background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', padding: '1rem 1.25rem', borderRadius: 'var(--radius-md)' }}>
                 <div style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   <Info size={16} style={{ color: 'var(--accent-cyan)' }} />
-                  <span>Simple Step-by-Step Setup Guide for IndiaMart:</span>
+                  <span>Simple Setup Guide for Email Lead Fetching:</span>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
                     <span style={{ width: '20px', height: '20px', borderRadius: '50%', background: 'rgba(6, 182, 212, 0.2)', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: '800', flexShrink: 0 }}>1</span>
-                    <span>Log in to your seller portal at <strong style={{ color: 'var(--text-primary)' }}>seller.indiamart.com</strong></span>
+                    <span>Enter your seller <strong style={{ color: 'var(--text-primary)' }}>Email Address</strong> (e.g. seller@gmail.com)</span>
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
                     <span style={{ width: '20px', height: '20px', borderRadius: '50%', background: 'rgba(6, 182, 212, 0.2)', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: '800', flexShrink: 0 }}>2</span>
-                    <span>Go to <strong style={{ color: 'var(--text-primary)' }}>Settings &gt; Lead Manager API / Push API</strong></span>
+                    <span>For Gmail, enable 2-Step Verification &amp; generate an <strong style={{ color: 'var(--accent-cyan)' }}>App Password</strong> at myaccount.google.com/apppasswords</span>
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
                     <span style={{ width: '20px', height: '20px', borderRadius: '50%', background: 'rgba(6, 182, 212, 0.2)', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: '800', flexShrink: 0 }}>3</span>
-                    <span>Copy your <strong style={{ color: 'var(--accent-cyan)' }}>CRM API Key (GLUSR_CRM_KEY)</strong> and paste it in Field 1 below</span>
+                    <span>Enter your <strong style={{ color: 'var(--text-primary)' }}>Email Password / App Password</strong> in Field 2 below</span>
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
                     <span style={{ width: '20px', height: '20px', borderRadius: '50%', background: 'rgba(6, 182, 212, 0.2)', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: '800', flexShrink: 0 }}>4</span>
-                    <span>Enter your <strong style={{ color: 'var(--text-primary)' }}>Registered Mobile Number</strong> and click <strong>Save Integration Settings</strong></span>
+                    <span>Click <strong>Save Integration Settings</strong>. The system will automatically check for incoming lead emails every 1 minute.</span>
                   </div>
                 </div>
               </div>
 
-              {/* Field 1: IndiaMart API Key */}
+              {/* Field 1: Seller Email Address */}
               <div className="form-group">
-                <label className="form-label" htmlFor="indiamart-key">
-                  1. IndiaMart CRM API Key (GLUSR_CRM_KEY) *
+                <label className="form-label" htmlFor="email-address">
+                  1. Seller Email Address *
                 </label>
                 <div className="input-container">
-                  <Key size={16} className="input-icon" />
+                  <Mail size={16} className="input-icon" />
                   <input
-                    id="indiamart-key"
+                    id="email-address"
+                    type="email"
+                    required
+                    className="form-input"
+                    placeholder="e.g. seller.business@gmail.com"
+                    value={emailAddress}
+                    onChange={(e) => setEmailAddress(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Field 2: Email Password / App Password */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="email-password">
+                  2. Email Password / App Password *
+                </label>
+                <div className="input-container">
+                  <Lock size={16} className="input-icon" />
+                  <input
+                    id="email-password"
                     type="password"
                     required
                     className="form-input"
-                    placeholder="e.g. mKey_XYZ1238912..."
-                    value={indiamartKey}
-                    onChange={(e) => setIndiamartKey(e.target.value)}
+                    placeholder="Enter email account password or app password..."
+                    value={emailPassword}
+                    onChange={(e) => setEmailPassword(e.target.value)}
                   />
                 </div>
               </div>
 
-              {/* Field 2: Registered Mobile Number */}
-              <div className="form-group">
-                <label className="form-label" htmlFor="indiamart-mobile">
-                  2. Registered Seller Mobile Number *
-                </label>
-                <div className="input-container">
-                  <Smartphone size={16} className="input-icon" />
-                  <input
-                    id="indiamart-mobile"
-                    type="text"
-                    required
-                    className="form-input"
-                    placeholder="e.g. +91 9876543210"
-                    value={indiamartMobile}
-                    onChange={(e) => setIndiamartMobile(e.target.value)}
-                  />
+              {/* Field 3 & 4: IMAP Server Host & SSL Port Row */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="form-group">
+                  <label className="form-label" htmlFor="imap-host">
+                    3. IMAP Server Host (Default: Gmail)
+                  </label>
+                  <div className="input-container">
+                    <Server size={16} className="input-icon" />
+                    <input
+                      id="imap-host"
+                      type="text"
+                      className="form-input"
+                      placeholder="imap.gmail.com"
+                      value={imapHost}
+                      onChange={(e) => setImapHost(e.target.value)}
+                    />
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '3px' }}>No change needed for Gmail / Google Workspace</div>
                 </div>
-              </div>
 
-              {/* Field 3: Push Webhook Endpoint URL */}
-              <div className="form-group">
-                <label className="form-label" htmlFor="indiamart-webhook-url">
-                  3. Push Webhook Listener Endpoint URL (Optional)
-                </label>
-                <div className="input-container">
-                  <Globe size={16} className="input-icon" />
+                <div className="form-group">
+                  <label className="form-label" htmlFor="imap-port">
+                    4. IMAP Port (SSL)
+                  </label>
                   <input
-                    id="indiamart-webhook-url"
+                    id="imap-port"
                     type="text"
                     className="form-input"
-                    placeholder="https://balajicrm.web.app/api/indiamart-push"
-                    value={indiamartWebhookUrl}
-                    onChange={(e) => setIndiamartWebhookUrl(e.target.value)}
+                    style={{ paddingLeft: '1rem' }}
+                    placeholder="993"
+                    value={imapPort}
+                    onChange={(e) => setImapPort(e.target.value)}
                   />
-                </div>
-              </div>
-
-              {/* Field 4: Webhook Signature Secret */}
-              <div className="form-group">
-                <label className="form-label" htmlFor="indiamart-webhook-secret">
-                  4. Webhook Signature Secret Token (Optional)
-                </label>
-                <div className="input-container">
-                  <ShieldCheck size={16} className="input-icon" />
-                  <input
-                    id="indiamart-webhook-secret"
-                    type="password"
-                    className="form-input"
-                    placeholder="Secret key for payload authentication"
-                    value={indiamartWebhookSecret}
-                    onChange={(e) => setIndiamartWebhookSecret(e.target.value)}
-                  />
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '3px' }}>Standard SSL Port 993 (No change needed)</div>
                 </div>
               </div>
 
@@ -555,7 +567,7 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
               style={{ width: '100%', fontSize: '0.82rem' }}
             >
               <Key size={15} style={{ color: 'var(--accent-amber)' }} />
-              <span>Clear Saved API Credentials</span>
+              <span>Clear Saved Integration Credentials</span>
             </button>
 
             <button 
@@ -576,3 +588,4 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
 };
 
 export default ApiSettingsModal;
+
