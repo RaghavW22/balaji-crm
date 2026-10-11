@@ -1,4 +1,7 @@
 {
+  "firestore": {
+    "rules": "firestore.rules"
+  },
   "hosting": {
     "site": "balajicrm",
     "public": "dist",
@@ -15,3 +18,4 @@
     ]
   }
 }
+

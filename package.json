@@ -4,13 +4,22 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "start": "concurrently -n \"FRONTEND,BACKEND-FETCHER\" -c \"cyan,magenta\" \"npm run dev\" \"npm run server\"",
     "dev": "vite",
+    "server": "node --watch emailFetcher.js",
+    "read-emails": "node --watch emailFetcher.js",
+    "dev:all": "concurrently -n \"FRONTEND,BACKEND-FETCHER\" -c \"cyan,magenta\" \"npm run dev\" \"npm run server\"",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "concurrently": "^10.0.5",
+    "dotenv": "^17.4.2",
     "firebase": "^10.12.2",
+    "imap-simple": "^5.1.0",
     "lucide-react": "^0.395.0",
+    "mailparser": "^3.9.26",
+    "nodemailer": "^10.0.10",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

@@ -273,6 +273,39 @@ export const deleteProductFromFirestore = async (userId, productId) => {
   }
 };
 
+/**
+ * Clear All Sent Replies from Firestore Database for User
+ */
+export const clearAllSentRepliesFromFirestore = async (userId) => {
+  try {
+    const repliesRef = collection(db, "users", userId, "sent_replies");
+    const querySnapshot = await getDocs(repliesRef);
+    const deletePromises = [];
+    querySnapshot.forEach((docSnap) => {
+      deletePromises.push(deleteDoc(doc(db, "users", userId, "sent_replies", docSnap.id)));
+    });
+    await Promise.all(deletePromises);
+    return { success: true };
+  } catch (error) {
+    console.warn("Firestore clear sent replies warning:", error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Delete a Single Sent Reply from Firestore Database
+ */
+export const deleteSentReplyFromFirestore = async (userId, replyId) => {
+  try {
+    const replyRef = doc(db, "users", userId, "sent_replies", replyId);
+    await deleteDoc(replyRef);
+    return { success: true };
+  } catch (error) {
+    console.warn("Firestore reply delete warning:", error.message);
+    return { success: false, error: error.message };
+  }
+};
+
 
 /**
  * Send Password Reset Email

@@ -16,3 +16,11 @@ dist-ssr/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+firebase-debug.log*
+*.log
+
+# Local Runtime Caches
+leads_cache.json
+processed_uids.json
+products_cache.json
+sent_replies_cache.json

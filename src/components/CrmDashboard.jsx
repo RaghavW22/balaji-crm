@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Cpu, 
-  Settings, 
-  Sun, 
-  Moon, 
-  LogOut, 
-  ShoppingBag, 
-  MessageSquare, 
-  Sparkles, 
+import {
+  Cpu,
+  Settings,
+  Sun,
+  Moon,
+  LogOut,
+  ShoppingBag,
+  MessageSquare,
+  Sparkles,
   Phone,
   Mail,
   MapPin,
@@ -34,18 +34,25 @@ import {
   AlertTriangle,
   Play,
   Pause,
-  Power
+  Power,
+  Send
 } from 'lucide-react';
-import { 
-  logoutUser, 
-  fetchApiSettingsFromFirestore, 
+import {
+  logoutUser,
+  fetchApiSettingsFromFirestore,
   saveApiSettingsToFirestore,
   fetchLeadsFromFirestore,
+  saveLeadToFirestore,
+  deleteLeadFromFirestore,
+  clearAllLeadsFromFirestore,
   saveProductToFirestore,
   fetchProductsFromFirestore,
-  deleteProductFromFirestore
+  deleteProductFromFirestore,
+  clearAllSentRepliesFromFirestore,
+  deleteSentReplyFromFirestore
 } from '../firebaseConfig';
 import ApiSettingsModal from './ApiSettingsModal';
+import { parseIndiaMartEmail, DEFAULT_TARGET_SENDER, INDIAMART_SENDER_EMAIL } from '../utils/indiamartParser';
 
 const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
   // Navigation State ('overview' | 'requests' | 'products' | 'settings')
@@ -62,6 +69,11 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [emailAddress, setEmailAddress] = useState('');
   const [emailPassword, setEmailPassword] = useState('');
+  const [targetSenderEmail, setTargetSenderEmail] = useState(() => {
+    return localStorage.getItem('target_sender_email') || DEFAULT_TARGET_SENDER;
+  });
+  const [isFetchingEmail, setIsFetchingEmail] = useState(false);
+  const [fetchNotice, setFetchNotice] = useState(null);
   const [whatsappToken, setWhatsappToken] = useState('');
   const [whatsappPhoneId, setWhatsappPhoneId] = useState('');
 
@@ -72,101 +84,18 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
   // Selected Inquiry Modal
   const [activeInquiryModal, setActiveInquiryModal] = useState(null);
 
-  // Initial Sample Seller Products Catalog
-  const defaultSampleProducts = [
-    {
-      id: "prod-demo-1",
-      name: "Industrial Water Pump 5HP",
-      price: "₹24,500",
-      unit: "per unit",
-      imageUrl: "https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=600&auto=format&fit=crop",
-      description: "High-efficiency heavy duty three phase centrifugal pump designed for industrial continuous operation.",
-      specs: "Flow rate: 500 LPM, Head max: 40m, Power: 5HP 415V"
-    },
-    {
-      id: "prod-demo-2",
-      name: "Heavy Duty CNC Lathe Machine",
-      price: "₹4,85,000",
-      unit: "per set",
-      imageUrl: "https://images.unsplash.com/photo-1581092335397-9583fe92d232?w=600&auto=format&fit=crop",
-      description: "Precision CNC turning lathe machine with Siemens controller for high torque metal machining.",
-      specs: "Swing over bed: 400mm, Max turning length: 1000mm, Spindle speed: 3000 RPM"
-    },
-    {
-      id: "prod-demo-3",
-      name: "Automated Control Panel 3-Phase",
-      price: "₹38,000",
-      unit: "per panel",
-      imageUrl: "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=600&auto=format&fit=crop",
-      description: "Digital star-delta starter panel with over-voltage and phase failure protection.",
-      specs: "Voltage: 415V AC, Rating: 50HP, Enclosure: IP65 Outdoor"
-    }
-  ];
-
-  // Demo Buyer Inquiries illustrating Automated WhatsApp Business Template Replies
-  const sampleInquiriesData = [
-    {
-      id: "em-lead-1",
-      query_id: "EMQ123456789",
-      timestamp: new Date().toISOString(),
-      buyer: {
-        name: "Rahul Sharma",
-        company: "Sharma Enterprises",
-        email: "rahul.sharma@example.com",
-        phone: "+91-9876543210",
-        location: { city: "Delhi", state: "Delhi", country: "India" }
-      },
-      product: {
-        name: "Industrial Water Pump 5HP",
-        category: "Pumps & Motors",
-        quantity: "10 units",
-        requirement_details: "Need heavy duty 3-phase pump for factory installation."
-      },
-      lead_source: "Email Ingestion (IMAP)",
-      status: { is_new: true, is_verified: true },
-      whatsappStatus: {
-        sent: true,
-        sentAt: new Date().toISOString(),
-        templateName: "buyer_inquiry_reply",
-        matchedProduct: "Industrial Water Pump 5HP",
-        priceSent: "₹24,500",
-        photoSent: "https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=600&auto=format&fit=crop",
-        specsSent: "Flow rate: 500 LPM, Head max: 40m, Power: 5HP 415V"
-      }
-    },
-    {
-      id: "em-lead-2",
-      query_id: "EMQ987654321",
-      timestamp: new Date(Date.now() - 3600000).toISOString(),
-      buyer: {
-        name: "Vikram Mehta",
-        company: "Mehta Auto Components",
-        email: "vikram@mehtaauto.com",
-        phone: "+91-9871122334",
-        location: { city: "Pune", state: "Maharashtra", country: "India" }
-      },
-      product: {
-        name: "High Speed Hydraulic Press 50 Ton",
-        category: "Industrial Machinery",
-        quantity: "2 units",
-        requirement_details: "Looking for 50T hydraulic press machine with automatic feeder."
-      },
-      lead_source: "Email Ingestion (IMAP)",
-      status: { is_new: true, is_verified: true },
-      whatsappStatus: {
-        sent: false,
-        reason: "Product requested ('High Speed Hydraulic Press 50 Ton') is not listed in seller catalog. Auto-reply was automatically blocked to prevent sending wrong details."
-      }
-    }
-  ];
-
   // Ingested Product Inquiries State
-  const [inquiries, setInquiries] = useState(sampleInquiriesData);
+  const [inquiries, setInquiries] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Seller Products State
-  const [products, setProducts] = useState(defaultSampleProducts);
+  const [products, setProducts] = useState([]);
   const [isProductsLoading, setIsProductsLoading] = useState(true);
+
+
+
+  // Sent auto-reply emails log
+  const [sentReplies, setSentReplies] = useState([]);
 
   // Add New Product Form State
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
@@ -178,6 +107,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
     price: '',
     unit: 'per unit',
     imageUrl: '',
+    extraImageUrls: '',
     description: '',
     specs: ''
   });
@@ -200,6 +130,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
 
     setEmailAddress(localStorage.getItem('email_address') || '');
     setEmailPassword(localStorage.getItem('email_password') || '');
+    setTargetSenderEmail(localStorage.getItem('target_sender_email') || DEFAULT_TARGET_SENDER);
     setWhatsappToken(localStorage.getItem('whatsapp_access_token') || '');
     setWhatsappPhoneId(localStorage.getItem('whatsapp_phone_id') || '');
 
@@ -217,6 +148,10 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
       if (settingsRes.success && settingsRes.data) {
         if (settingsRes.data.emailAddress !== undefined) setEmailAddress(settingsRes.data.emailAddress);
         if (settingsRes.data.emailPassword !== undefined) setEmailPassword(settingsRes.data.emailPassword);
+        if (settingsRes.data.targetSenderEmail !== undefined) {
+          setTargetSenderEmail(settingsRes.data.targetSenderEmail || DEFAULT_TARGET_SENDER);
+          localStorage.setItem('target_sender_email', settingsRes.data.targetSenderEmail || DEFAULT_TARGET_SENDER);
+        }
         if (settingsRes.data.whatsappToken !== undefined) setWhatsappToken(settingsRes.data.whatsappToken);
         if (settingsRes.data.whatsappPhoneId !== undefined) setWhatsappPhoneId(settingsRes.data.whatsappPhoneId);
         if (settingsRes.data.isAutoReplyEnabled !== undefined) {
@@ -225,42 +160,63 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
         }
       }
 
-      // 2. Fetch Buyer Product Requests
+      // 2. Fetch Buyer Product Requests (Firestore + Live Ingestion Server)
+      let combinedLeads = [];
       const leadsRes = await fetchLeadsFromFirestore(user.uid);
-      if (leadsRes.success) {
-        if (leadsRes.leads && leadsRes.leads.length > 0) {
-          setInquiries(leadsRes.leads);
-        } else {
-          setInquiries(sampleInquiriesData);
-        }
+      if (leadsRes.success && leadsRes.leads) {
+        combinedLeads = [...leadsRes.leads];
       }
+
+      // Also merge leads captured by the live terminal email fetcher
+      try {
+        const localApiRes = await fetch('http://localhost:5001/api/leads');
+        if (localApiRes.ok) {
+          const localData = await localApiRes.json();
+          if (localData.leads && Array.isArray(localData.leads)) {
+            for (const lead of localData.leads) {
+              const alreadyExists = combinedLeads.some(l => 
+                l.query_id === lead.query_id || 
+                (l.buyer?.phone === lead.buyer?.phone && l.product?.name === lead.product?.name)
+              );
+              if (!alreadyExists) {
+                combinedLeads.unshift(lead);
+              }
+            }
+          }
+        }
+      } catch (_) {
+        // Fallback silently if emailFetcher is restarting
+      }
+
+      setInquiries(combinedLeads);
 
       // 3. Fetch Seller Products Catalog
       const prodRes = await fetchProductsFromFirestore(user.uid);
       if (prodRes.success) {
-        if (prodRes.products && prodRes.products.length > 0) {
-          setProducts(prodRes.products);
-          localStorage.setItem(storageInitKey, 'true');
-        } else if (hasInitialized === 'true') {
-          setProducts([]);
-        } else {
-          const seededProducts = [];
-          for (const demoProd of defaultSampleProducts) {
-            const { id, ...prodData } = demoProd;
-            const seedRes = await saveProductToFirestore(user.uid, prodData);
-            if (seedRes.success) {
-              seededProducts.push({ id: seedRes.id, ...prodData });
-            } else {
-              seededProducts.push(demoProd);
-            }
-          }
-          localStorage.setItem(storageInitKey, 'true');
-          setProducts(seededProducts);
-        }
+        setProducts(prodRes.products || []);
+        // Sync product catalog to local email server for auto-reply image embedding
+        try {
+          await fetch('http://localhost:5001/api/sync-products', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ products: prodRes.products || [] })
+          });
+        } catch (_) { /* silent — server may be starting up */ }
+      } else {
+        setProducts([]);
       }
+
+      // 4. Fetch Sent Reply Emails log from backend
+      try {
+        const repliesRes = await fetch('http://localhost:5001/api/sent-replies');
+        if (repliesRes.ok) {
+          const repliesData = await repliesRes.json();
+          setSentReplies(repliesData.replies || []);
+        }
+      } catch (_) { /* backend may be starting */ }
     } else {
-      setInquiries(sampleInquiriesData);
-      setProducts(defaultSampleProducts);
+      setInquiries([]);
+      setProducts([]);
     }
 
     setIsLoading(false);
@@ -310,6 +266,101 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
     return null;
   };
 
+  // INGEST / FETCH INQUIRY EMAIL (STRICTLY FILTERED TO targetSenderEmail)
+  const handleSimulateOrFetchEmail = async (customEmailText, customSender) => {
+    setIsFetchingEmail(true);
+    setFetchNotice(null);
+
+    // Live inbox check via backend fetcher API (Port 5001)
+    if (!customEmailText) {
+      try {
+        const apiRes = await fetch('http://localhost:5001/api/fetch-now');
+        if (apiRes.ok) {
+          const apiData = await apiRes.json();
+          if (apiData.leads && apiData.leads.length > 0) {
+            setInquiries(apiData.leads);
+            setFetchNotice({
+              type: 'success',
+              text: `✅ Inbox synchronized! Loaded inquiry emails.`
+            });
+          } else {
+            setFetchNotice({
+              type: 'info',
+              text: `📭 No new unread inquiry emails. Inbox is up to date.`
+            });
+          }
+          setIsFetchingEmail(false);
+          return;
+        }
+      } catch (_) {
+        setFetchNotice({
+          type: 'error',
+          text: `⚠️ Ingestion server not reachable. Ensure "npm start" is running in terminal.`
+        });
+        setIsFetchingEmail(false);
+        return;
+      }
+    }
+
+    const emailContent = customEmailText;
+    const sender = customSender || targetSenderEmail;
+
+    // Run parser with strict allowed sender validation (25128067@pvgcoet.ac.in)
+    const parseResult = parseIndiaMartEmail(emailContent, sender, targetSenderEmail);
+
+    if (!parseResult.success) {
+      setFetchNotice({ type: 'error', text: parseResult.error });
+      setIsFetchingEmail(false);
+      return;
+    }
+
+    const leadData = parseResult.data;
+
+    // Check against seller catalog
+    const matchRes = findBestCatalogMatch(leadData.product?.name);
+    let whatsappStatus = { sent: false, reason: 'Auto-reply disabled or no product match' };
+
+    if (!isAutoReplyEnabled) {
+      whatsappStatus = {
+        sent: false,
+        reason: 'Auto-Reply is currently STOPPED. Enable Auto-Reply to automatically send WhatsApp responses.'
+      };
+    } else if (matchRes && matchRes.product) {
+      whatsappStatus = {
+        sent: true,
+        templateName: localStorage.getItem('whatsapp_template_name') || 'buyer_inquiry_reply',
+        matchedProduct: matchRes.product.name,
+        priceSent: matchRes.product.price,
+        specsSent: matchRes.product.specs || 'Standard specifications',
+        photoSent: matchRes.product.imageUrl || ''
+      };
+    } else {
+      whatsappStatus = {
+        sent: false,
+        reason: `Product "${leadData.product?.name}" was not found in your seller catalog. Auto-reply blocked to prevent wrong pricing.`
+      };
+    }
+
+    leadData.whatsappStatus = whatsappStatus;
+
+    // Save lead to Firestore Database
+    let savedId = `lead-${Date.now()}`;
+    if (user && user.uid) {
+      const saveRes = await saveLeadToFirestore(user.uid, leadData);
+      if (saveRes.success) savedId = saveRes.id;
+    }
+
+    const newInquiry = { id: savedId, ...leadData };
+    setInquiries(prev => [newInquiry, ...prev]);
+
+    setFetchNotice({
+      type: 'success',
+      text: `✅ Successfully fetched inquiry from ${targetSenderEmail}! (${whatsappStatus.sent ? 'WhatsApp Auto-Reply Sent' : 'Auto-Reply Blocked: ' + whatsappStatus.reason})`
+    });
+
+    setIsFetchingEmail(false);
+  };
+
   // Add Product Submit Handler
   const handleAddProductSubmit = async (e) => {
     e.preventDefault();
@@ -326,6 +377,9 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
       price: newProduct.price.startsWith('₹') || newProduct.price.startsWith('$') ? newProduct.price.trim() : `₹${newProduct.price.trim()}`,
       unit: newProduct.unit.trim() || 'per unit',
       imageUrl: newProduct.imageUrl.trim() || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=600&auto=format&fit=crop',
+      extraImageUrls: newProduct.extraImageUrls.trim()
+        ? newProduct.extraImageUrls.split(/[,\n]+/).map(s => s.trim()).filter(u => u.startsWith('http'))
+        : [],
       description: newProduct.description.trim() || 'No description provided.',
       specs: newProduct.specs.trim() || 'Standard Specifications',
       updatedAt: new Date().toISOString()
@@ -339,7 +393,16 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
 
     if (result.success) {
       const addedProduct = { id: result.id, ...productPayload };
-      setProducts(prev => [addedProduct, ...prev]);
+      setProducts(prev => {
+        const updated = [addedProduct, ...prev];
+        // Sync updated catalog to email server for image embedding in auto-reply
+        fetch('http://localhost:5001/api/sync-products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ products: updated })
+        }).catch(() => {});
+        return updated;
+      });
 
       setProductFormNotice({ type: 'success', text: 'Product added successfully!' });
       setTimeout(() => {
@@ -350,6 +413,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
           price: '',
           unit: 'per unit',
           imageUrl: '',
+          extraImageUrls: '',
           description: '',
           specs: ''
         });
@@ -369,6 +433,66 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
         localStorage.setItem(`products_initialized_${user.uid}`, 'true');
         await deleteProductFromFirestore(user.uid, productId);
       }
+    }
+  };
+
+
+
+  // Delete Product Request Handler
+  const handleDeleteInquiry = async (inquiryId) => {
+    if (window.confirm("Are you sure you want to delete this product request?")) {
+      setInquiries(prev => prev.filter(item => (item.id || item.query_id) !== inquiryId));
+      if (activeInquiryModal && (activeInquiryModal.id || activeInquiryModal.query_id) === inquiryId) {
+        setActiveInquiryModal(null);
+      }
+      if (user && user.uid && inquiryId) {
+        await deleteLeadFromFirestore(user.uid, inquiryId);
+      }
+    }
+  };
+
+  // Clear All Inquiries Handler (cleans all cached & database requests)
+  const handleClearAllInquiries = async () => {
+    if (window.confirm("Are you sure you want to clear all product requests?")) {
+      setInquiries([]);
+      setActiveInquiryModal(null);
+      if (user && user.uid) {
+        await clearAllLeadsFromFirestore(user.uid);
+      }
+      try {
+        await fetch('http://localhost:5001/api/clear-leads', { method: 'POST' });
+      } catch (_) {}
+      setFetchNotice({ type: 'info', text: 'All product inquiries have been cleared.' });
+    }
+  };
+
+  // Delete Single Sent Reply Handler
+  const handleDeleteSentReply = async (reply, index) => {
+    if (window.confirm("Are you sure you want to delete this sent reply record?")) {
+      setSentReplies(prev => prev.filter((_, i) => i !== index));
+      if (user && user.uid && reply.id) {
+        await deleteSentReplyFromFirestore(user.uid, reply.id);
+      }
+      try {
+        await fetch('http://localhost:5001/api/delete-sent-reply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sentAt: reply.sentAt, index })
+        });
+      } catch (_) {}
+    }
+  };
+
+  // Clear All Sent Replies Handler (clears from website, backend cache, and Firestore)
+  const handleClearAllSentReplies = async () => {
+    if (window.confirm("Are you sure you want to clear all sent reply history? This will remove all records from the website and database.")) {
+      setSentReplies([]);
+      if (user && user.uid) {
+        await clearAllSentRepliesFromFirestore(user.uid);
+      }
+      try {
+        await fetch('http://localhost:5001/api/clear-sent-replies', { method: 'POST' });
+      } catch (_) {}
     }
   };
 
@@ -420,7 +544,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
         </div>
 
         <div className="header-actions" style={{ gap: '0.75rem' }}>
-          
+
           {/* MAIN START & STOP BUTTON FOR AUTO-REPLY SYSTEM */}
           <button
             onClick={toggleAutoReplySystem}
@@ -457,8 +581,8 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
           </button>
 
           {/* Theme Switcher */}
-          <button 
-            onClick={toggleTheme} 
+          <button
+            onClick={toggleTheme}
             className="action-btn-icon"
             title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
           >
@@ -466,8 +590,8 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
           </button>
 
           {/* Sign Out Button */}
-          <button 
-            onClick={handleSignOut} 
+          <button
+            onClick={handleSignOut}
             className="btn-secondary"
             style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
           >
@@ -487,7 +611,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
           <Menu size={18} />
           <span>Dashboard Menu ({activeTab.toUpperCase()})</span>
         </button>
-        
+
         {/* Mobile Master Start/Stop Auto-Reply Button */}
         <button
           onClick={toggleAutoReplySystem}
@@ -507,7 +631,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
 
       {/* Main Dashboard Layout Container (Sidebar + Content Viewport) */}
       <div className="dashboard-layout-container">
-        
+
         {/* SIDEBAR NAVIGATION PANEL */}
         <aside className={`sidebar-aside ${!isMobileSidebarOpen ? 'mobile-collapsed' : ''}`}>
           <div>
@@ -558,6 +682,26 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
 
               <li>
                 <button
+                  className={`sidebar-nav-btn ${activeTab === 'sent-replies' ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveTab('sent-replies');
+                    setIsMobileSidebarOpen(false);
+                    // Refresh replies on tab visit
+                    fetch('http://localhost:5001/api/sent-replies').then(r => r.json()).then(d => setSentReplies(d.replies || [])).catch(() => {});
+                  }}
+                >
+                  <Send size={18} />
+                  <span>Sent Replies</span>
+                  {sentReplies.length > 0 && (
+                    <span className="sidebar-badge" style={{ background: 'rgba(96, 165, 250, 0.2)', color: 'var(--accent-cyan)', borderColor: 'rgba(96, 165, 250, 0.3)' }}>
+                      {sentReplies.length}
+                    </span>
+                  )}
+                </button>
+              </li>
+
+              <li>
+                <button
                   className={`sidebar-nav-btn ${activeTab === 'settings' ? 'active' : ''}`}
                   onClick={() => {
                     setIsSettingsOpen(true);
@@ -566,7 +710,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                 >
                   <Settings size={18} />
                   <span>API Settings</span>
-                  {(!emailAddress || !emailPassword || !whatsappToken) && (
+                  {(!whatsappToken) && (
                     <span className="sidebar-badge" style={{ background: 'rgba(245, 158, 11, 0.2)', color: 'var(--accent-amber)', borderColor: 'rgba(245, 158, 11, 0.3)' }}>
                       Setup
                     </span>
@@ -599,18 +743,18 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                 <div className="hero-welcome">
                   <h1>Welcome to Seller Dashboard</h1>
                   <p>
-                    Automated catalog matching and WhatsApp Business API responses for email buyer requests (auto-fetched every 1 minute).
+                    Automated catalog matching and WhatsApp Business API responses for email buyer requests (strictly fetching only from {targetSenderEmail} every 1 minute).
                   </p>
                 </div>
 
                 {/* Master Auto-Reply Status Control Card */}
-                <div style={{ 
-                  background: 'var(--glass-bg)', 
-                  border: `1px solid ${isAutoReplyEnabled ? 'rgba(16, 185, 129, 0.35)' : 'rgba(244, 63, 94, 0.35)'}`, 
-                  padding: '0.85rem 1.25rem', 
-                  borderRadius: 'var(--radius-md)', 
-                  display: 'flex', 
-                  alignItems: 'center', 
+                <div style={{
+                  background: 'var(--glass-bg)',
+                  border: `1px solid ${isAutoReplyEnabled ? 'rgba(16, 185, 129, 0.35)' : 'rgba(244, 63, 94, 0.35)'}`,
+                  padding: '0.85rem 1.25rem',
+                  borderRadius: 'var(--radius-md)',
+                  display: 'flex',
+                  alignItems: 'center',
                   gap: '1.25rem',
                   boxShadow: isAutoReplyEnabled ? '0 0 15px rgba(16, 185, 129, 0.1)' : 'none'
                 }}>
@@ -619,25 +763,25 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                       Automated WhatsApp Reply Engine
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span 
-                        className={`score-badge ${isAutoReplyEnabled ? 'score-high' : 'score-low'}`} 
-                        style={{ 
-                          fontSize: '0.82rem', 
-                          padding: '0.25rem 0.65rem', 
-                          fontWeight: '800', 
-                          display: 'inline-flex', 
-                          alignItems: 'center', 
+                      <span
+                        className={`score-badge ${isAutoReplyEnabled ? 'score-high' : 'score-low'}`}
+                        style={{
+                          fontSize: '0.82rem',
+                          padding: '0.25rem 0.65rem',
+                          fontWeight: '800',
+                          display: 'inline-flex',
+                          alignItems: 'center',
                           gap: '0.4rem',
                           background: isAutoReplyEnabled ? 'rgba(16, 185, 129, 0.15)' : 'rgba(244, 63, 94, 0.15)',
                           color: isAutoReplyEnabled ? 'var(--accent-emerald)' : 'var(--accent-rose)',
                           borderColor: isAutoReplyEnabled ? 'rgba(16, 185, 129, 0.4)' : 'rgba(244, 63, 94, 0.4)'
                         }}
                       >
-                        <span style={{ 
-                          width: '8px', 
-                          height: '8px', 
-                          borderRadius: '50%', 
-                          background: isAutoReplyEnabled ? 'var(--accent-emerald)' : 'var(--accent-rose)', 
+                        <span style={{
+                          width: '8px',
+                          height: '8px',
+                          borderRadius: '50%',
+                          background: isAutoReplyEnabled ? 'var(--accent-emerald)' : 'var(--accent-rose)',
                           display: 'inline-block',
                           boxShadow: isAutoReplyEnabled ? '0 0 8px var(--accent-emerald)' : 'none'
                         }}></span>
@@ -706,16 +850,19 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                 </div>
 
                 <div className="kpi-card" onClick={() => setIsSettingsOpen(true)} style={{ cursor: 'pointer' }}>
-                  <div className="kpi-icon-box" style={{ background: 'rgba(99, 102, 241, 0.15)', color: 'var(--accent-primary)' }}>
+                  <div className="kpi-icon-box" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--accent-emerald)' }}>
                     <Mail size={24} />
                   </div>
                   <div>
-                    <div className="kpi-val" style={{ fontSize: '1.2rem', color: (emailAddress && emailPassword) ? 'var(--accent-emerald)' : 'var(--accent-amber)' }}>
-                      {(emailAddress && emailPassword) ? 'Connected' : 'Missing Password'}
+                    <div className="kpi-val" style={{ fontSize: '0.88rem', color: 'var(--accent-emerald)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '185px' }} title="raghavw2006@gmail.com">
+                      raghavw2006@gmail.com
                     </div>
-                    <div className="kpi-label">Email Lead Fetcher</div>
-                    <div className="kpi-trend neutral">
-                      {(emailAddress && emailPassword) ? '● Polling Every 1 Min' : '⚠ Setup Required'}
+                    <div className="kpi-label" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--accent-emerald)', display: 'inline-block' }}></span>
+                      Mailbox Connected (IMAP)
+                    </div>
+                    <div className="kpi-trend up" style={{ color: 'var(--accent-cyan)', fontSize: '0.72rem' }}>
+                      Filter: {targetSenderEmail}
                     </div>
                   </div>
                 </div>
@@ -738,7 +885,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
 
               {/* Quick Summary Grid */}
               <div className="dashboard-sections-grid">
-                
+
                 {/* Recent Inquiries Preview */}
                 <div className="section-panel">
                   <div className="panel-header">
@@ -756,55 +903,69 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                   </div>
 
                   <div className="activity-list">
-                    {inquiries.slice(0, 3).map((inquiry) => {
-                      const isSent = inquiry.whatsappStatus?.sent === true;
-                      return (
-                        <div key={inquiry.id || inquiry.query_id} className="activity-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.75rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div className="activity-user">
-                              <div className="avatar-circle">
-                                {inquiry.buyer?.name ? inquiry.buyer.name.charAt(0) : 'B'}
-                              </div>
-                              <div>
-                                <div style={{ fontWeight: '700', fontSize: '0.95rem' }}>
-                                  {inquiry.product?.name}
+                    {inquiries.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '1.75rem 1rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                        No buyer product requests yet.
+                      </div>
+                    ) : (
+                      inquiries.slice(0, 3).map((inquiry) => {
+                        const isSent = inquiry.whatsappStatus?.sent === true;
+                        return (
+                          <div key={inquiry.id || inquiry.query_id} className="activity-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.75rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <div className="activity-user">
+                                <div className="avatar-circle">
+                                  {inquiry.buyer?.name ? inquiry.buyer.name.charAt(0) : 'B'}
                                 </div>
-                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                  Buyer: {inquiry.buyer?.name} ({inquiry.buyer?.company})
+                                <div>
+                                  <div style={{ fontWeight: '700', fontSize: '0.95rem' }}>
+                                    {inquiry.product?.name}
+                                  </div>
+                                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                    Buyer: {inquiry.buyer?.name} ({inquiry.buyer?.company})
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                            
-                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                              <button
-                                className="btn-secondary"
-                                style={{ width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.78rem' }}
-                                onClick={() => {
-                                  setActiveTab('requests');
-                                  setActiveInquiryModal(inquiry);
-                                }}
-                              >
-                                <Eye size={14} />
-                                <span>View Details</span>
-                              </button>
-                            </div>
-                          </div>
 
-                          {/* WhatsApp Auto-Reply Delivery Banner */}
-                          {isSent ? (
-                            <div style={{ background: 'rgba(16, 185, 129, 0.08)', padding: '0.45rem 0.75rem', borderRadius: '6px', fontSize: '0.75rem', color: 'var(--accent-emerald)', border: '1px solid rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                              <CheckCircle2 size={14} />
-                              <span><strong>WhatsApp Template Auto-Sent:</strong> Photo &amp; Specs Delivered</span>
+                              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <button
+                                  className="btn-secondary"
+                                  style={{ width: 'auto', padding: '0.4rem 0.75rem', fontSize: '0.78rem' }}
+                                  onClick={() => {
+                                    setActiveTab('requests');
+                                    setActiveInquiryModal(inquiry);
+                                  }}
+                                >
+                                  <Eye size={14} />
+                                  <span>View Details</span>
+                                </button>
+                                <button
+                                  className="btn-secondary"
+                                  style={{ width: 'auto', padding: '0.4rem 0.65rem', fontSize: '0.78rem', color: 'var(--accent-rose)', borderColor: 'rgba(244, 63, 94, 0.3)' }}
+                                  onClick={() => handleDeleteInquiry(inquiry.id || inquiry.query_id)}
+                                  title="Delete Product Request"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
                             </div>
-                          ) : (
-                            <div style={{ background: 'rgba(244, 63, 94, 0.08)', padding: '0.45rem 0.75rem', borderRadius: '6px', fontSize: '0.75rem', color: 'var(--accent-rose)', border: '1px solid rgba(244, 63, 94, 0.2)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                              <XCircle size={14} />
-                              <span><strong>Auto-Reply Blocked:</strong> Product Not Found in Catalog</span>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+
+                            {/* WhatsApp Auto-Reply Delivery Banner */}
+                            {isSent ? (
+                              <div style={{ background: 'rgba(16, 185, 129, 0.08)', padding: '0.45rem 0.75rem', borderRadius: '6px', fontSize: '0.75rem', color: 'var(--accent-emerald)', border: '1px solid rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <CheckCircle2 size={14} />
+                                <span><strong>WhatsApp Template Auto-Sent:</strong> Photo &amp; Specs Delivered</span>
+                              </div>
+                            ) : (
+                              <div style={{ background: 'rgba(244, 63, 94, 0.08)', padding: '0.45rem 0.75rem', borderRadius: '6px', fontSize: '0.75rem', color: 'var(--accent-rose)', border: '1px solid rgba(244, 63, 94, 0.2)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <XCircle size={14} />
+                                <span><strong>Auto-Reply Blocked:</strong> Product Not Found in Catalog</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
 
@@ -825,20 +986,26 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {products.slice(0, 3).map(prod => (
-                      <div key={prod.id} style={{ padding: '0.75rem 1rem', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                          {prod.imageUrl && (
-                            <img src={prod.imageUrl} alt={prod.name} style={{ width: '36px', height: '36px', borderRadius: '6px', objectFit: 'cover', border: '1px solid var(--glass-border)' }} />
-                          )}
-                          <div>
-                            <div style={{ fontWeight: '700', fontSize: '0.9rem', color: 'var(--text-primary)' }}>{prod.name}</div>
-                            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}><span style={{ color: 'var(--accent-emerald)' }}>{prod.price}</span> ({prod.unit})</div>
-                          </div>
-                        </div>
-                        <span className="score-badge score-high" style={{ fontSize: '0.7rem' }}>Active</span>
+                    {products.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '1.75rem 1rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                        No products added yet. Click 'Go to Products' to add your catalog.
                       </div>
-                    ))}
+                    ) : (
+                      products.slice(0, 3).map(prod => (
+                        <div key={prod.id} style={{ padding: '0.75rem 1rem', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            {prod.imageUrl && (
+                              <img src={prod.imageUrl} alt={prod.name} style={{ width: '36px', height: '36px', borderRadius: '6px', objectFit: 'cover', border: '1px solid var(--glass-border)' }} />
+                            )}
+                            <div>
+                              <div style={{ fontWeight: '700', fontSize: '0.9rem', color: 'var(--text-primary)' }}>{prod.name}</div>
+                              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}><span style={{ color: 'var(--accent-emerald)' }}>{prod.price}</span> ({prod.unit})</div>
+                            </div>
+                          </div>
+                          <span className="score-badge score-high" style={{ fontSize: '0.7rem' }}>Active</span>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
 
@@ -860,19 +1027,69 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                   </div>
                 </div>
 
-                {/* Search Input Bar */}
-                <div className="input-container" style={{ width: '280px' }}>
-                  <Search size={16} className="input-icon" />
-                  <input
-                    type="text"
-                    className="form-input"
-                    style={{ padding: '0.5rem 0.8rem 0.5rem 2.4rem', fontSize: '0.85rem' }}
-                    placeholder="Search requests..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+                  {/* Search Input Bar */}
+                  <div className="input-container" style={{ width: '240px' }}>
+                    <Search size={16} className="input-icon" />
+                    <input
+                      type="text"
+                      className="form-input"
+                      style={{ padding: '0.5rem 0.8rem 0.5rem 2.4rem', fontSize: '0.85rem' }}
+                      placeholder="Search requests..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSimulateOrFetchEmail()}
+                    disabled={isFetchingEmail}
+                    className="btn-primary"
+                    style={{ padding: '0.5rem 0.95rem', fontSize: '0.82rem', width: 'auto', background: 'linear-gradient(135deg, var(--accent-cyan), var(--accent-primary))' }}
+                    title="Fetch latest inquiry emails from inbox"
+                  >
+                    {isFetchingEmail ? (
+                      <>
+                        <div className="spinner" style={{ width: '13px', height: '13px' }}></div>
+                        <span>Fetching...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={14} />
+                        <span>Fetch Inquiries</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleClearAllInquiries()}
+                    disabled={inquiries.length === 0}
+                    className="btn-secondary"
+                    style={{ padding: '0.5rem 0.85rem', fontSize: '0.82rem', width: 'auto', color: 'var(--accent-rose)', borderColor: 'rgba(244, 63, 94, 0.3)' }}
+                    title="Clear all product requests"
+                  >
+                    <Trash2 size={14} />
+                    <span>Clear All</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsSettingsOpen(true)}
+                    className="btn-secondary"
+                    style={{ padding: '0.5rem 0.85rem', fontSize: '0.82rem', width: 'auto' }}
+                  >
+                    <Settings size={14} />
+                    <span>Settings</span>
+                  </button>
                 </div>
               </div>
+
+              {/* Ingestion / Fetch Feedback Alert Box */}
+              {fetchNotice && (
+                <div className={`alert-box ${fetchNotice.type}`} style={{ marginTop: '0.85rem' }}>
+                  {fetchNotice.text}
+                </div>
+              )}
 
               {/* Notice if Auto-Reply System is Stopped */}
               {!isAutoReplyEnabled && (
@@ -918,7 +1135,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                     const isWhatsAppSent = inquiry.whatsappStatus?.sent === true;
 
                     return (
-                      <div 
+                      <div
                         key={inquiry.id || inquiry.query_id}
                         className="activity-item"
                         style={{
@@ -954,7 +1171,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                           </div>
 
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                            <button 
+                            <button
                               onClick={() => setActiveInquiryModal(inquiry)}
                               className="btn-secondary"
                               style={{ fontSize: '0.85rem', padding: '0.65rem 1.25rem', width: 'auto' }}
@@ -962,12 +1179,21 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                               <Eye size={16} />
                               <span>View Inquiry Details</span>
                             </button>
+                            <button
+                              onClick={() => handleDeleteInquiry(inquiry.id || inquiry.query_id)}
+                              className="btn-secondary"
+                              style={{ fontSize: '0.85rem', padding: '0.65rem 1rem', width: 'auto', color: 'var(--accent-rose)', borderColor: 'rgba(244, 63, 94, 0.35)' }}
+                              title="Delete Product Request"
+                            >
+                              <Trash2 size={16} />
+                              <span>Delete</span>
+                            </button>
                           </div>
                         </div>
 
                         {/* DEDICATED AUTOMATED WHATSAPP TEMPLATE STATUS INDICATOR PANEL */}
                         <div style={{ background: isWhatsAppSent ? 'rgba(16, 185, 129, 0.08)' : 'rgba(244, 63, 94, 0.08)', padding: '0.9rem 1.15rem', borderRadius: '8px', border: `1px solid ${isWhatsAppSent ? 'rgba(16, 185, 129, 0.25)' : 'rgba(244, 63, 94, 0.25)'}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
-                          
+
                           {/* Left: Status Icon & Details */}
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                             {isWhatsAppSent ? (
@@ -985,8 +1211,8 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                                 WhatsApp Reply Status: {isWhatsAppSent ? "AUTOMATED TEMPLATE SENT" : "AUTO-REPLY BLOCKED"}
                               </div>
                               <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                                {isWhatsAppSent 
-                                  ? `Approved Meta Template "${inquiry.whatsappStatus?.templateName || 'buyer_inquiry_reply'}" delivered with catalog photo, price (${inquiry.whatsappStatus?.priceSent || matchedProd?.price}), and specs.` 
+                                {isWhatsAppSent
+                                  ? `Approved Meta Template "${inquiry.whatsappStatus?.templateName || 'buyer_inquiry_reply'}" delivered with catalog photo, price (${inquiry.whatsappStatus?.priceSent || matchedProd?.price}), and specs.`
                                   : (inquiry.whatsappStatus?.reason || "Requested product is not found in seller catalog. Auto-reply was automatically prevented to avoid wrong pricing.")
                                 }
                               </div>
@@ -1086,14 +1312,14 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                   <div className="product-card-grid">
                     {filteredProducts.map((product) => (
                       <div key={product.id} className="product-card">
-                        
+
                         <div>
                           {/* Product Image Thumbnail Preview */}
                           {product.imageUrl && (
                             <div style={{ width: '100%', height: '160px', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: '0.85rem', position: 'relative', border: '1px solid var(--glass-border)' }}>
-                              <img 
-                                src={product.imageUrl} 
-                                alt={product.name} 
+                              <img
+                                src={product.imageUrl}
+                                alt={product.name}
                                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                 onError={(e) => { e.target.src = 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=600&auto=format&fit=crop'; }}
                               />
@@ -1156,6 +1382,148 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
             </div>
           )}
 
+          {/* VIEW 4: SENT REPLIES TAB */}
+          {activeTab === 'sent-replies' && (
+            <div>
+              <div className="section-panel">
+                <div className="panel-header">
+                  <div className="panel-title">
+                    <Send size={24} style={{ color: 'var(--accent-cyan)' }} />
+                    <div>
+                      <div style={{ fontSize: '1.2rem', fontWeight: '800' }}>Sent Auto-Replies ({sentReplies.length})</div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: '400' }}>
+                        Log of all auto-reply emails dispatched by the CRM engine
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                    {sentReplies.length > 0 && (
+                      <button
+                        className="btn-secondary"
+                        style={{
+                          width: 'auto',
+                          padding: '0.55rem 1rem',
+                          fontSize: '0.82rem',
+                          color: '#f43f5e',
+                          borderColor: 'rgba(244, 63, 94, 0.35)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.4rem'
+                        }}
+                        onClick={handleClearAllSentReplies}
+                        title="Clear all sent reply logs from website & database"
+                      >
+                        <Trash2 size={15} />
+                        <span>Clear All History</span>
+                      </button>
+                    )}
+                    <button
+                      className="btn-secondary"
+                      style={{ width: 'auto', padding: '0.55rem 1rem', fontSize: '0.82rem' }}
+                      onClick={() => fetch('http://localhost:5001/api/sent-replies').then(r => r.json()).then(d => setSentReplies(d.replies || [])).catch(() => {})}
+                    >
+                      <CheckCircle2 size={15} />
+                      <span>Refresh</span>
+                    </button>
+                  </div>
+                </div>
+
+                {sentReplies.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '3.5rem 1rem', background: 'var(--glass-bg)', borderRadius: 'var(--radius-md)', border: '1px dashed var(--glass-border)', marginTop: '1.25rem' }}>
+                    <Send size={42} style={{ color: 'var(--text-muted)', marginBottom: '0.85rem' }} />
+                    <h3 style={{ fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '0.4rem' }}>No Replies Sent Yet</h3>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: '420px', margin: '0 auto' }}>
+                      Auto-reply emails will appear here after the CRM engine processes incoming enquiries.
+                    </p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1.25rem' }}>
+                    {sentReplies.map((reply, idx) => (
+                      <div key={idx} style={{
+                        background: 'var(--glass-bg)',
+                        border: '1px solid var(--glass-border)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '1rem 1.25rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.5rem'
+                      }}>
+                        {/* Reply Header Row */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                            <span className="score-badge score-high" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem' }}>
+                              <CheckCircle2 size={12} /> Sent
+                            </span>
+                            <span style={{ fontWeight: '700', color: 'var(--accent-cyan)', fontSize: '0.9rem' }}>
+                              {reply.buyerName || 'Buyer'}
+                            </span>
+                            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>→</span>
+                            <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{reply.to}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                              <Clock size={13} />
+                              {new Date(reply.sentAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSentReply(reply, idx)}
+                              title="Delete this sent reply record"
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: 'var(--text-muted)',
+                                cursor: 'pointer',
+                                padding: '4px 6px',
+                                borderRadius: '4px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                transition: 'color 0.2s'
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.color = '#f43f5e'}
+                              onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Reply Details */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem', marginTop: '0.25rem' }}>
+                          <div style={{ background: 'var(--input-bg)', borderRadius: '8px', padding: '0.5rem 0.75rem', border: '1px solid var(--glass-border)' }}>
+                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '2px' }}>PRODUCT ENQUIRED</div>
+                            <div style={{ fontSize: '0.85rem', fontWeight: '600', color: 'var(--text-primary)' }}>{reply.productName || '—'}</div>
+                          </div>
+                          {reply.matchedProductName && (
+                            <div style={{ background: 'rgba(16,185,129,0.07)', borderRadius: '8px', padding: '0.5rem 0.75rem', border: '1px solid rgba(16,185,129,0.2)' }}>
+                              <div style={{ fontSize: '0.68rem', color: 'var(--accent-emerald)', marginBottom: '2px' }}>CATALOG MATCH SENT</div>
+                              <div style={{ fontSize: '0.85rem', fontWeight: '600', color: 'var(--text-primary)' }}>{reply.matchedProductName}</div>
+                            </div>
+                          )}
+                          <div style={{ background: 'var(--input-bg)', borderRadius: '8px', padding: '0.5rem 0.75rem', border: '1px solid var(--glass-border)' }}>
+                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '2px' }}>ORDER VALUE</div>
+                            <div style={{ fontSize: '0.85rem', fontWeight: '600', color: 'var(--accent-emerald)' }}>{reply.orderValue || '—'}</div>
+                          </div>
+                          <div style={{ background: 'var(--input-bg)', borderRadius: '8px', padding: '0.5rem 0.75rem', border: '1px solid var(--glass-border)' }}>
+                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '2px' }}>IMAGES EMBEDDED</div>
+                            <div style={{ fontSize: '0.85rem', fontWeight: '600', color: reply.imageCount > 0 ? 'var(--accent-cyan)' : 'var(--text-muted)' }}>
+                              {reply.imageCount > 0 ? `${reply.imageCount} image${reply.imageCount > 1 ? 's' : ''}` : 'None'}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Subject line */}
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', borderTop: '1px solid var(--glass-border)', paddingTop: '0.5rem', marginTop: '0.1rem' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Subject: </span>{reply.subject}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
         </main>
       </div>
 
@@ -1189,7 +1557,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
             )}
 
             <form onSubmit={handleAddProductSubmit}>
-              
+
               {/* 1. Product Name */}
               <div className="form-group">
                 <label className="form-label">1. Product Name *</label>
@@ -1242,7 +1610,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
 
               {/* 4. Product Image URL */}
               <div className="form-group">
-                <label className="form-label">4. Product Image URL / Photo Link</label>
+                <label className="form-label">4. Main Product Image URL</label>
                 <div className="input-container">
                   <Image size={16} className="input-icon" />
                   <input
@@ -1262,6 +1630,21 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                     <li>Upload your product photo from your phone or computer.</li>
                     <li>Copy the <strong>"Direct Link"</strong> (ends with <code>.jpg</code> or <code>.png</code>) and paste it into the field above!</li>
                   </ol>
+                </div>
+              </div>
+
+              {/* 4b. Extra Product Images */}
+              <div className="form-group">
+                <label className="form-label">4b. Additional Product Images (Optional)</label>
+                <textarea
+                  className="form-input"
+                  style={{ paddingLeft: '1rem', minHeight: '70px', resize: 'vertical', fontFamily: 'inherit' }}
+                  placeholder={`Paste extra image URLs, one per line or comma-separated:\nhttps://example.com/photo2.jpg\nhttps://example.com/photo3.jpg`}
+                  value={newProduct.extraImageUrls}
+                  onChange={(e) => setNewProduct({ ...newProduct, extraImageUrls: e.target.value })}
+                />
+                <div style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  All images will be embedded in the reply email sent to buyers.
                 </div>
               </div>
 
@@ -1328,7 +1711,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
       {activeInquiryModal && (
         <div className="modal-backdrop" onClick={() => setActiveInquiryModal(null)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '680px' }}>
-            
+
             {/* Modal Top Bar */}
             <div className="modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
@@ -1340,12 +1723,28 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                   </div>
                 </div>
               </div>
-              <button
-                onClick={() => setActiveInquiryModal(null)}
-                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-              >
-                <X size={22} />
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <button
+                  onClick={() => handleDeleteInquiry(activeInquiryModal.id || activeInquiryModal.query_id)}
+                  className="btn-secondary"
+                  style={{
+                    padding: '0.4rem 0.85rem',
+                    fontSize: '0.8rem',
+                    color: 'var(--accent-rose)',
+                    borderColor: 'rgba(244, 63, 94, 0.4)'
+                  }}
+                  title="Delete Product Request"
+                >
+                  <Trash2 size={14} />
+                  <span>Delete</span>
+                </button>
+                <button
+                  onClick={() => setActiveInquiryModal(null)}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                >
+                  <X size={22} />
+                </button>
+              </div>
             </div>
 
             {/* Modal Body: Structured Fields One by One */}
@@ -1429,6 +1828,69 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                 </div>
               </div>
 
+              {/* INDIAMART SPECIFIC DETAILS CARD (if available) */}
+              {(activeInquiryModal.product?.grade || activeInquiryModal.product?.orderValue || activeInquiryModal.buyer?.productsOfInterest || (activeInquiryModal.enquiredProductsList && activeInquiryModal.enquiredProductsList.length > 0)) && (
+                <div style={{ background: 'rgba(56, 189, 248, 0.06)', padding: '1.25rem', borderRadius: 'var(--radius-md)', border: '1px solid rgba(56, 189, 248, 0.25)' }}>
+                  <div style={{ fontSize: '0.82rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--accent-cyan)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Mail size={16} />
+                    <span>IndiaMART Requirement &amp; Buyer Intelligence</span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '0.85rem' }}>
+                    {activeInquiryModal.product?.grade && (
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Grade</div>
+                        <div style={{ fontSize: '0.95rem', fontWeight: '700', color: 'var(--text-primary)' }}>{activeInquiryModal.product.grade}</div>
+                      </div>
+                    )}
+                    {activeInquiryModal.product?.orderValue && (
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Probable Order Value</div>
+                        <div style={{ fontSize: '0.95rem', fontWeight: '700', color: 'var(--accent-emerald)' }}>{activeInquiryModal.product.orderValue}</div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '0.85rem' }}>
+                    {activeInquiryModal.product?.requirementType && (
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Requirement Type</div>
+                        <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>{activeInquiryModal.product.requirementType}</div>
+                      </div>
+                    )}
+                    {activeInquiryModal.buyer?.memberSince && (
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Member Since</div>
+                        <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>{activeInquiryModal.buyer.memberSince}</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {activeInquiryModal.buyer?.productsOfInterest && (
+                    <div style={{ marginBottom: '0.85rem' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Products of Interest</div>
+                      <div style={{ fontSize: '0.88rem', color: 'var(--accent-cyan)', fontWeight: '600', marginTop: '2px' }}>
+                        {activeInquiryModal.buyer.productsOfInterest}
+                      </div>
+                    </div>
+                  )}
+
+                  {activeInquiryModal.enquiredProductsList && activeInquiryModal.enquiredProductsList.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>Products Enquired by Buyer:</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                        {activeInquiryModal.enquiredProductsList.map((item, idx) => (
+                          <div key={idx} style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '0.5rem 0.75rem', borderRadius: '6px', border: '1px solid var(--glass-border)', fontSize: '0.82rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <Tag size={13} style={{ color: 'var(--accent-amber)' }} />
+                            <span>{item}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* 2. BUYER (CUSTOMER) DETAILS SECTION */}
               <div style={{ background: 'var(--glass-bg)', padding: '1.25rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--glass-border)' }}>
                 <div style={{ fontSize: '0.82rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--accent-secondary)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
@@ -1478,6 +1940,8 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
           </div>
         </div>
       )}
+
+
 
       {/* API Settings Modal */}
       <ApiSettingsModal

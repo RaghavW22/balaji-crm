@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Each authenticated user can only access their own data tree
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      // Leads subcollection
+      match /leads/{leadId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Products catalog subcollection
+      match /products/{productId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // API / app settings subcollection
+      match /settings/{settingId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Sent replies subcollection
+      match /sent_replies/{replyId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+  }
+}
