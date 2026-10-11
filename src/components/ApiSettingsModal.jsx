@@ -20,6 +20,8 @@ import {
 } from 'lucide-react';
 import { saveApiSettingsToFirestore, fetchApiSettingsFromFirestore, clearAllLeadsFromFirestore } from '../firebaseConfig';
 
+export const DEFAULT_BACKEND_API_URL = 'https://balaji-email-engine.onrender.com';
+
 const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
   if (!isOpen) return null;
 
@@ -35,9 +37,14 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
   const [autoReplyEnabled, setAutoReplyEnabled] = useState(true);
   const [autoReplySenderName, setAutoReplySenderName] = useState('Balaji Enterprises');
 
-  // Backend API URL State (Render / Cloud / Localhost)
+  // Backend API URL State (Render Cloud)
   const [backendApiUrl, setBackendApiUrl] = useState(() => {
-    return localStorage.getItem('backend_api_url') || import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5001';
+    const saved = localStorage.getItem('backend_api_url');
+    if (!saved || saved.includes('localhost') || saved.includes('127.0.0.1')) {
+      localStorage.setItem('backend_api_url', DEFAULT_BACKEND_API_URL);
+      return DEFAULT_BACKEND_API_URL;
+    }
+    return saved;
   });
   const [testStatus, setTestStatus] = useState(null);
 
@@ -130,7 +137,14 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
       const storedAutoReply = localStorage.getItem('auto_reply_email_enabled');
       setAutoReplyEnabled(storedAutoReply === null ? true : storedAutoReply === 'true');
       setAutoReplySenderName(localStorage.getItem('auto_reply_sender_name') || 'Balaji Enterprises');
-      setBackendApiUrl(localStorage.getItem('backend_api_url') || import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5001');
+      
+      const savedUrl = localStorage.getItem('backend_api_url');
+      if (!savedUrl || savedUrl.includes('localhost') || savedUrl.includes('127.0.0.1')) {
+        setBackendApiUrl(DEFAULT_BACKEND_API_URL);
+        localStorage.setItem('backend_api_url', DEFAULT_BACKEND_API_URL);
+      } else {
+        setBackendApiUrl(savedUrl);
+      }
 
       if (user && user.uid) {
         const res = await fetchApiSettingsFromFirestore(user.uid);
@@ -289,17 +303,17 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
         <div style={{ background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', padding: '1rem 1.25rem', borderRadius: 'var(--radius-md)', marginBottom: '1.25rem' }}>
           <div style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
             <Terminal size={16} style={{ color: 'var(--accent-cyan)' }} />
-            <span>Backend Server URL (Render / Cloud / Localhost):</span>
+            <span>Backend Server URL (Render Cloud):</span>
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.75rem', lineHeight: '1.4' }}>
-            If deployed on Render, enter your service URL (e.g. <code>https://balaji-crm.onrender.com</code>). If running locally with <code>npm start</code>, use <code>http://localhost:5001</code>.
+            Connected to your 24/7 cloud email engine at <code>https://balaji-email-engine.onrender.com</code>.
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <input
               type="text"
               className="form-input"
               style={{ flex: 1, minWidth: '240px', padding: '0.5rem 0.8rem', fontSize: '0.85rem' }}
-              placeholder="https://your-service.onrender.com or http://localhost:5001"
+              placeholder="https://balaji-email-engine.onrender.com"
               value={backendApiUrl}
               onChange={(e) => handleUrlChange(e.target.value)}
               onBlur={() => {

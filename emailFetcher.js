@@ -963,7 +963,7 @@ apiServer.on('error', (err) => {
 });
 
 apiServer.listen(API_PORT, () => {
-  console.log(`🌐 ${c.green}Live Ingestion API Server online at: http://localhost:${API_PORT}/api/leads${c.reset}`);
+  console.log(`🌐 ${c.green}Live Ingestion API Server online (Port: ${API_PORT}) | Cloud: https://balaji-email-engine.onrender.com${c.reset}`);
 });
 
 // ----------------------------------------------------------------------

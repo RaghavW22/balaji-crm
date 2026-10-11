@@ -54,12 +54,19 @@ import {
 import ApiSettingsModal from './ApiSettingsModal';
 import { parseIndiaMartEmail, DEFAULT_TARGET_SENDER, INDIAMART_SENDER_EMAIL } from '../utils/indiamartParser';
 
+export const DEFAULT_BACKEND_API_URL = 'https://balaji-email-engine.onrender.com';
+
 export const getBackendApiUrl = () => {
   const url = (
     localStorage.getItem('backend_api_url') ||
     import.meta.env.VITE_BACKEND_API_URL ||
-    'http://localhost:5001'
+    DEFAULT_BACKEND_API_URL
   ).trim();
+  // Automatically clear and upgrade any legacy localhost values
+  if (!url || url.includes('localhost') || url.includes('127.0.0.1')) {
+    localStorage.setItem('backend_api_url', DEFAULT_BACKEND_API_URL);
+    return DEFAULT_BACKEND_API_URL;
+  }
   return url.replace(/\/+$/, '');
 };
 
