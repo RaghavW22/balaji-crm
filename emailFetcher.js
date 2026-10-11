@@ -601,6 +601,58 @@ async function sendProductReplyEmail(transporter, toEmail, buyerName, prod, cidM
 }
 
 // ----------------------------------------------------------------------
+// 📨 Outbound SMTP Transporter (Pure IPv4 SSL Port 465)
+// ----------------------------------------------------------------------
+async function getSmtpTransporters() {
+  const cleanPassword = SELLER_APP_PASSWORD.replace(/\s+/g, '');
+  const targetHost = (SMTP_HOST || 'smtp.gmail.com').trim();
+  const targetPort = SMTP_PORT || 465;
+
+  let ipv4Addresses = [];
+  try {
+    const res = await dns.promises.lookup(targetHost, { all: true, family: 4 });
+    ipv4Addresses = (res || []).map(r => r.address).filter(Boolean);
+  } catch (err) {
+    console.log(`${c.yellow}⚠️ DNS IPv4 lookup failed (${err.message}). Using hostname direct.${c.reset}`);
+  }
+
+  // Passing resolved IPv4 addresses directly forces Nodemailer to bypass its internal
+  // random DNS resolver which picks IPv6 and crashes with ENETUNREACH on cloud hosts like Render.
+  const primaryHost = ipv4Addresses[0] || targetHost;
+  const fallbackHost = ipv4Addresses[1] || ipv4Addresses[0] || targetHost;
+
+  const primary = nodemailer.createTransport({
+    host: primaryHost,
+    port: targetPort,
+    secure: targetPort === 465,
+    tls: {
+      servername: targetHost,
+      rejectUnauthorized: false
+    },
+    auth: { user: SELLER_EMAIL, pass: cleanPassword },
+    connectionTimeout: 20000,
+    greetingTimeout: 20000,
+    socketTimeout: 35000
+  });
+
+  const fallback = nodemailer.createTransport({
+    host: fallbackHost,
+    port: targetPort,
+    secure: targetPort === 465,
+    tls: {
+      servername: targetHost,
+      rejectUnauthorized: false
+    },
+    auth: { user: SELLER_EMAIL, pass: cleanPassword },
+    connectionTimeout: 20000,
+    greetingTimeout: 20000,
+    socketTimeout: 35000
+  });
+
+  return { primary, fallback, primaryHost };
+}
+
+// ----------------------------------------------------------------------
 // 📨 Auto Email Reply — one separate email per matched catalog product
 // ----------------------------------------------------------------------
 async function sendAutoReplyEmail(toEmail, lead, originalSubject) {
@@ -609,29 +661,8 @@ async function sendAutoReplyEmail(toEmail, lead, originalSubject) {
     return;
   }
 
-  const cleanPassword = SELLER_APP_PASSWORD.replace(/\s+/g, '');
-
-  // Primary transporter: direct SMTPS port 465 (SSL direct with IPv4 first)
-  const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: { user: SELLER_EMAIL, pass: cleanPassword },
-    tls: { rejectUnauthorized: false },
-    connectionTimeout: 15000,
-    greetingTimeout: 15000,
-    socketTimeout: 30000
-  });
-
-  // Fallback transporter: Nodemailer Gmail service adapter
-  const fallbackTransporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: SELLER_EMAIL, pass: cleanPassword },
-    tls: { rejectUnauthorized: false },
-    connectionTimeout: 15000,
-    greetingTimeout: 15000,
-    socketTimeout: 30000
-  });
+  const { primary: transporter, fallback: fallbackTransporter, primaryHost } = await getSmtpTransporters();
+  console.log(`${c.cyan}🔌 Outbound SMTP configured via pure IPv4 (${primaryHost}:${SMTP_PORT || 465})...${c.reset}`);
 
   const buyerName    = lead.buyer?.name || 'Valued Customer';
   const enquiredList = lead.enquiredProductsList || [];
