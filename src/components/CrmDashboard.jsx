@@ -1955,7 +1955,10 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
       {/* API Settings Modal */}
       <ApiSettingsModal
         isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
+        onClose={() => {
+          setIsSettingsOpen(false);
+          loadDashboardData();
+        }}
         user={user}
         onDataCleared={() => setInquiries([])}
       />

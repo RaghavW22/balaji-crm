@@ -58,8 +58,13 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
       }
       if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
         cleanUrl = `https://${cleanUrl}`;
-        setBackendApiUrl(cleanUrl);
       }
+      setBackendApiUrl(cleanUrl);
+      localStorage.setItem('backend_api_url', cleanUrl);
+      if (user && user.uid) {
+        saveApiSettingsToFirestore(user.uid, { backendApiUrl: cleanUrl }).catch(() => {});
+      }
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 12000);
       const res = await fetch(`${cleanUrl}/health`, { signal: controller.signal });
@@ -77,6 +82,35 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
         : `Could not reach server (${err.message}). If using Render free tier, it may take 30-50s to spin up.`;
       setTestStatus({ success: false, message: msg });
     }
+  };
+
+  const handleUrlChange = (val) => {
+    setBackendApiUrl(val);
+    setTestStatus(null);
+    let clean = val.trim().replace(/\/+$/, '');
+    if (clean) {
+      if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+        clean = `https://${clean}`;
+      }
+      localStorage.setItem('backend_api_url', clean);
+      if (user && user.uid) {
+        saveApiSettingsToFirestore(user.uid, { backendApiUrl: clean }).catch(() => {});
+      }
+    }
+  };
+
+  const handleModalClose = () => {
+    let cleanUrl = (backendApiUrl || '').trim().replace(/\/+$/, '');
+    if (cleanUrl) {
+      if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+        cleanUrl = `https://${cleanUrl}`;
+      }
+      localStorage.setItem('backend_api_url', cleanUrl);
+      if (user && user.uid) {
+        saveApiSettingsToFirestore(user.uid, { backendApiUrl: cleanUrl }).catch(() => {});
+      }
+    }
+    onClose();
   };
 
   // Load saved credentials from Firestore Database (or localStorage fallback)
@@ -213,7 +247,7 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" onClick={handleModalClose}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '640px' }}>
         
         {/* Modal Header */}
@@ -229,7 +263,7 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleModalClose}
             style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
           >
             <X size={22} />
@@ -267,9 +301,16 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
               style={{ flex: 1, minWidth: '240px', padding: '0.5rem 0.8rem', fontSize: '0.85rem' }}
               placeholder="https://your-service.onrender.com or http://localhost:5001"
               value={backendApiUrl}
-              onChange={(e) => {
-                setBackendApiUrl(e.target.value);
-                setTestStatus(null);
+              onChange={(e) => handleUrlChange(e.target.value)}
+              onBlur={() => {
+                let clean = (backendApiUrl || '').trim().replace(/\/+$/, '');
+                if (clean) {
+                  if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+                    clean = `https://${clean}`;
+                    setBackendApiUrl(clean);
+                  }
+                  localStorage.setItem('backend_api_url', clean);
+                }
               }}
             />
             <button
