@@ -5,6 +5,7 @@ import {
   Smartphone,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Database,
   Trash2,
   Info,
@@ -50,16 +51,31 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
   const handleTestConnection = async () => {
     setTestStatus({ loading: true });
     try {
-      const cleanUrl = backendApiUrl.trim().replace(/\/+$/, '');
-      const res = await fetch(`${cleanUrl}/health`);
+      let cleanUrl = (backendApiUrl || '').trim().replace(/\/+$/, '');
+      if (!cleanUrl) {
+        setTestStatus({ success: false, message: 'Please enter a valid URL (e.g. https://your-service.onrender.com)' });
+        return;
+      }
+      if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+        cleanUrl = `https://${cleanUrl}`;
+        setBackendApiUrl(cleanUrl);
+      }
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const res = await fetch(`${cleanUrl}/health`, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setTestStatus({ success: true, message: `Connected! Service is online (${data.service || 'Ready'}).` });
       } else {
         setTestStatus({ success: false, message: `Server responded with HTTP ${res.status}.` });
       }
     } catch (err) {
-      setTestStatus({ success: false, message: `Could not reach server: ${err.message}. If using Render, ensure service is active and URL is correct.` });
+      const msg = err.name === 'AbortError' 
+        ? 'Connection timed out (12s). If Render was idle, it may take 30-50s to wake up. Please wait a moment and try again.'
+        : `Could not reach server (${err.message}). If using Render free tier, it may take 30-50s to spin up.`;
+      setTestStatus({ success: false, message: msg });
     }
   };
 
