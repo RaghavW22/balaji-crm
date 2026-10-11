@@ -943,7 +943,7 @@ const apiServer = http.createServer((req, res) => {
   res.end(JSON.stringify({ error: 'Endpoint not found' }));
 });
 
-const API_PORT = 5001;
+const API_PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 5001;
 apiServer.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.log(`ℹ️ Ingestion API port ${API_PORT} is already active and serving.`);
