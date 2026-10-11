@@ -34,11 +34,34 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
   const [autoReplyEnabled, setAutoReplyEnabled] = useState(true);
   const [autoReplySenderName, setAutoReplySenderName] = useState('Balaji Enterprises');
 
+  // Backend API URL State (Render / Cloud / Localhost)
+  const [backendApiUrl, setBackendApiUrl] = useState(() => {
+    return localStorage.getItem('backend_api_url') || import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5001';
+  });
+  const [testStatus, setTestStatus] = useState(null);
+
   // UI Feedback State
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [dbSynced, setDbSynced] = useState(false);
   const [isClearingLeads, setIsClearingLeads] = useState(false);
+
+  // Test live backend connection
+  const handleTestConnection = async () => {
+    setTestStatus({ loading: true });
+    try {
+      const cleanUrl = backendApiUrl.trim().replace(/\/+$/, '');
+      const res = await fetch(`${cleanUrl}/health`);
+      if (res.ok) {
+        const data = await res.json();
+        setTestStatus({ success: true, message: `Connected! Service is online (${data.service || 'Ready'}).` });
+      } else {
+        setTestStatus({ success: false, message: `Server responded with HTTP ${res.status}.` });
+      }
+    } catch (err) {
+      setTestStatus({ success: false, message: `Could not reach server: ${err.message}. If using Render, ensure service is active and URL is correct.` });
+    }
+  };
 
   // Load saved credentials from Firestore Database (or localStorage fallback)
   useEffect(() => {
@@ -57,6 +80,7 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
       const storedAutoReply = localStorage.getItem('auto_reply_email_enabled');
       setAutoReplyEnabled(storedAutoReply === null ? true : storedAutoReply === 'true');
       setAutoReplySenderName(localStorage.getItem('auto_reply_sender_name') || 'Balaji Enterprises');
+      setBackendApiUrl(localStorage.getItem('backend_api_url') || import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:5001');
 
       if (user && user.uid) {
         const res = await fetchApiSettingsFromFirestore(user.uid);
@@ -69,6 +93,7 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
           if (res.data.whatsappSenderNumber !== undefined) setWhatsappSenderNumber(res.data.whatsappSenderNumber);
           if (res.data.autoReplyEnabled !== undefined) setAutoReplyEnabled(res.data.autoReplyEnabled);
           if (res.data.autoReplySenderName !== undefined) setAutoReplySenderName(res.data.autoReplySenderName);
+          if (res.data.backendApiUrl !== undefined && res.data.backendApiUrl) setBackendApiUrl(res.data.backendApiUrl);
 
           setDbSynced(true);
         }
@@ -83,6 +108,8 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
     e.preventDefault();
     setIsSaving(true);
 
+    const cleanBackendUrl = backendApiUrl.trim().replace(/\/+$/, '');
+
     const settingsData = {
       // WhatsApp Business Integration Payload
       whatsappToken: whatsappToken.trim(),
@@ -93,7 +120,9 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
       whatsappSenderNumber: whatsappSenderNumber.trim(),
       // Email Auto-Reply Payload
       autoReplyEnabled,
-      autoReplySenderName: autoReplySenderName.trim()
+      autoReplySenderName: autoReplySenderName.trim(),
+      // Backend URL
+      backendApiUrl: cleanBackendUrl
     };
 
     // Save to LocalStorage
@@ -103,6 +132,7 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
     localStorage.setItem('whatsapp_template_name', settingsData.whatsappTemplateName);
     localStorage.setItem('whatsapp_template_language', settingsData.whatsappTemplateLanguage);
     localStorage.setItem('whatsapp_sender_number', settingsData.whatsappSenderNumber);
+    localStorage.setItem('backend_api_url', cleanBackendUrl);
     localStorage.setItem('auto_reply_email_enabled', String(autoReplyEnabled));
     localStorage.setItem('auto_reply_sender_name', autoReplySenderName.trim());
 
@@ -197,18 +227,57 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
           </div>
           <div>
             <div style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text-primary)' }}>
-              Email Ingestion is Managed Directly
+              Email Ingestion &amp; Live Server Engine
             </div>
             <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-              Your email credentials &amp; inbox reader are configured in your <code>.env</code> file and monitored live in your terminal.
+              Your Gmail reader runs continuously on Render or locally. Configure its URL below so the dashboard communicates with it.
             </div>
           </div>
+        </div>
+
+        {/* Live Backend API Server URL Card */}
+        <div style={{ background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', padding: '1rem 1.25rem', borderRadius: 'var(--radius-md)', marginBottom: '1.25rem' }}>
+          <div style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <Terminal size={16} style={{ color: 'var(--accent-cyan)' }} />
+            <span>Backend Server URL (Render / Cloud / Localhost):</span>
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.75rem', lineHeight: '1.4' }}>
+            If deployed on Render, enter your service URL (e.g. <code>https://balaji-crm.onrender.com</code>). If running locally with <code>npm start</code>, use <code>http://localhost:5001</code>.
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              type="text"
+              className="form-input"
+              style={{ flex: 1, minWidth: '240px', padding: '0.5rem 0.8rem', fontSize: '0.85rem' }}
+              placeholder="https://your-service.onrender.com or http://localhost:5001"
+              value={backendApiUrl}
+              onChange={(e) => {
+                setBackendApiUrl(e.target.value);
+                setTestStatus(null);
+              }}
+            />
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={handleTestConnection}
+              disabled={testStatus?.loading}
+              style={{ width: 'auto', padding: '0.5rem 0.9rem', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+            >
+              {testStatus?.loading ? 'Testing...' : 'Test Connection'}
+            </button>
+          </div>
+          {testStatus && (
+            <div style={{ marginTop: '0.55rem', fontSize: '0.78rem', color: testStatus.success ? 'var(--accent-emerald)' : 'var(--accent-rose)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              {testStatus.success ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+              <span>{testStatus.message}</span>
+            </div>
+          )}
         </div>
 
         {savedSuccess && (
           <div className="alert-box success" style={{ marginBottom: '1.25rem' }}>
             <CheckCircle2 size={18} />
-            <div>WhatsApp Integration settings saved successfully!</div>
+            <div>Settings saved successfully!</div>
           </div>
         )}
 

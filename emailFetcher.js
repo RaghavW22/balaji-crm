@@ -818,6 +818,16 @@ const apiServer = http.createServer((req, res) => {
     return;
   }
 
+  if (req.url === '/' || req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ 
+      status: 'online', 
+      service: 'Balaji CRM Email Engine', 
+      timestamp: new Date().toISOString() 
+    }));
+    return;
+  }
+
   if (req.url === '/api/leads') {
     let leads = [];
     if (fs.existsSync(LEADS_FILE)) {

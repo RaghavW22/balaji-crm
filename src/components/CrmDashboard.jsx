@@ -54,6 +54,15 @@ import {
 import ApiSettingsModal from './ApiSettingsModal';
 import { parseIndiaMartEmail, DEFAULT_TARGET_SENDER, INDIAMART_SENDER_EMAIL } from '../utils/indiamartParser';
 
+export const getBackendApiUrl = () => {
+  const url = (
+    localStorage.getItem('backend_api_url') ||
+    import.meta.env.VITE_BACKEND_API_URL ||
+    'http://localhost:5001'
+  ).trim();
+  return url.replace(/\/+$/, '');
+};
+
 const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
   // Navigation State ('overview' | 'requests' | 'products' | 'settings')
   const [activeTab, setActiveTab] = useState('overview');
@@ -169,7 +178,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
 
       // Also merge leads captured by the live terminal email fetcher
       try {
-        const localApiRes = await fetch('http://localhost:5001/api/leads');
+        const localApiRes = await fetch(`${getBackendApiUrl()}/api/leads`);
         if (localApiRes.ok) {
           const localData = await localApiRes.json();
           if (localData.leads && Array.isArray(localData.leads)) {
@@ -196,7 +205,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
         setProducts(prodRes.products || []);
         // Sync product catalog to local email server for auto-reply image embedding
         try {
-          await fetch('http://localhost:5001/api/sync-products', {
+          await fetch(`${getBackendApiUrl()}/api/sync-products`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ products: prodRes.products || [] })
@@ -208,7 +217,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
 
       // 4. Fetch Sent Reply Emails log from backend
       try {
-        const repliesRes = await fetch('http://localhost:5001/api/sent-replies');
+        const repliesRes = await fetch(`${getBackendApiUrl()}/api/sent-replies`);
         if (repliesRes.ok) {
           const repliesData = await repliesRes.json();
           setSentReplies(repliesData.replies || []);
@@ -271,10 +280,10 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
     setIsFetchingEmail(true);
     setFetchNotice(null);
 
-    // Live inbox check via backend fetcher API (Port 5001)
+    // Live inbox check via backend fetcher API
     if (!customEmailText) {
       try {
-        const apiRes = await fetch('http://localhost:5001/api/fetch-now');
+        const apiRes = await fetch(`${getBackendApiUrl()}/api/fetch-now`);
         if (apiRes.ok) {
           const apiData = await apiRes.json();
           if (apiData.leads && apiData.leads.length > 0) {
@@ -295,7 +304,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
       } catch (_) {
         setFetchNotice({
           type: 'error',
-          text: `⚠️ Ingestion server not reachable. Ensure "npm start" is running in terminal.`
+          text: `⚠️ Ingestion server not reachable at ${getBackendApiUrl()}. If using Render, ensure your Render URL is set in Settings.`
         });
         setIsFetchingEmail(false);
         return;
@@ -396,7 +405,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
       setProducts(prev => {
         const updated = [addedProduct, ...prev];
         // Sync updated catalog to email server for image embedding in auto-reply
-        fetch('http://localhost:5001/api/sync-products', {
+        fetch(`${getBackendApiUrl()}/api/sync-products`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ products: updated })
@@ -460,7 +469,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
         await clearAllLeadsFromFirestore(user.uid);
       }
       try {
-        await fetch('http://localhost:5001/api/clear-leads', { method: 'POST' });
+        await fetch(`${getBackendApiUrl()}/api/clear-leads`, { method: 'POST' });
       } catch (_) {}
       setFetchNotice({ type: 'info', text: 'All product inquiries have been cleared.' });
     }
@@ -474,7 +483,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
         await deleteSentReplyFromFirestore(user.uid, reply.id);
       }
       try {
-        await fetch('http://localhost:5001/api/delete-sent-reply', {
+        await fetch(`${getBackendApiUrl()}/api/delete-sent-reply`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sentAt: reply.sentAt, index })
@@ -491,7 +500,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
         await clearAllSentRepliesFromFirestore(user.uid);
       }
       try {
-        await fetch('http://localhost:5001/api/clear-sent-replies', { method: 'POST' });
+        await fetch(`${getBackendApiUrl()}/api/clear-sent-replies`, { method: 'POST' });
       } catch (_) {}
     }
   };
@@ -687,7 +696,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                     setActiveTab('sent-replies');
                     setIsMobileSidebarOpen(false);
                     // Refresh replies on tab visit
-                    fetch('http://localhost:5001/api/sent-replies').then(r => r.json()).then(d => setSentReplies(d.replies || [])).catch(() => {});
+                    fetch(`${getBackendApiUrl()}/api/sent-replies`).then(r => r.json()).then(d => setSentReplies(d.replies || [])).catch(() => {});
                   }}
                 >
                   <Send size={18} />
@@ -1420,7 +1429,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                     <button
                       className="btn-secondary"
                       style={{ width: 'auto', padding: '0.55rem 1rem', fontSize: '0.82rem' }}
-                      onClick={() => fetch('http://localhost:5001/api/sent-replies').then(r => r.json()).then(d => setSentReplies(d.replies || [])).catch(() => {})}
+                      onClick={() => fetch(`${getBackendApiUrl()}/api/sent-replies`).then(r => r.json()).then(d => setSentReplies(d.replies || [])).catch(() => {})}
                     >
                       <CheckCircle2 size={15} />
                       <span>Refresh</span>
