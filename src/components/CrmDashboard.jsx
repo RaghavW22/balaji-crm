@@ -174,6 +174,14 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
           setIsAutoReplyEnabled(settingsRes.data.isAutoReplyEnabled);
           localStorage.setItem('is_auto_reply_enabled', String(settingsRes.data.isAutoReplyEnabled));
         }
+        if (settingsRes.data.backendApiUrl !== undefined && settingsRes.data.backendApiUrl) {
+          if (!settingsRes.data.backendApiUrl.includes('localhost') && !settingsRes.data.backendApiUrl.includes('127.0.0.1')) {
+            localStorage.setItem('backend_api_url', settingsRes.data.backendApiUrl);
+          } else {
+            localStorage.setItem('backend_api_url', DEFAULT_BACKEND_API_URL);
+            saveApiSettingsToFirestore(user.uid, { backendApiUrl: DEFAULT_BACKEND_API_URL }).catch(() => {});
+          }
+        }
       }
 
       // 2. Fetch Buyer Product Requests (Firestore + Live Ingestion Server)

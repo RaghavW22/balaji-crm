@@ -108,14 +108,14 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
 
   const handleModalClose = () => {
     let cleanUrl = (backendApiUrl || '').trim().replace(/\/+$/, '');
-    if (cleanUrl) {
-      if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
-        cleanUrl = `https://${cleanUrl}`;
-      }
-      localStorage.setItem('backend_api_url', cleanUrl);
-      if (user && user.uid) {
-        saveApiSettingsToFirestore(user.uid, { backendApiUrl: cleanUrl }).catch(() => {});
-      }
+    if (!cleanUrl || cleanUrl.includes('localhost') || cleanUrl.includes('127.0.0.1')) {
+      cleanUrl = DEFAULT_BACKEND_API_URL;
+    } else if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+      cleanUrl = `https://${cleanUrl}`;
+    }
+    localStorage.setItem('backend_api_url', cleanUrl);
+    if (user && user.uid) {
+      saveApiSettingsToFirestore(user.uid, { backendApiUrl: cleanUrl }).catch(() => {});
     }
     onClose();
   };
@@ -157,7 +157,17 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
           if (res.data.whatsappSenderNumber !== undefined) setWhatsappSenderNumber(res.data.whatsappSenderNumber);
           if (res.data.autoReplyEnabled !== undefined) setAutoReplyEnabled(res.data.autoReplyEnabled);
           if (res.data.autoReplySenderName !== undefined) setAutoReplySenderName(res.data.autoReplySenderName);
-          if (res.data.backendApiUrl !== undefined && res.data.backendApiUrl) setBackendApiUrl(res.data.backendApiUrl);
+          
+          if (res.data.backendApiUrl && !res.data.backendApiUrl.includes('localhost') && !res.data.backendApiUrl.includes('127.0.0.1')) {
+            setBackendApiUrl(res.data.backendApiUrl);
+            localStorage.setItem('backend_api_url', res.data.backendApiUrl);
+          } else {
+            setBackendApiUrl(DEFAULT_BACKEND_API_URL);
+            localStorage.setItem('backend_api_url', DEFAULT_BACKEND_API_URL);
+            if (res.data.backendApiUrl) {
+              saveApiSettingsToFirestore(user.uid, { backendApiUrl: DEFAULT_BACKEND_API_URL }).catch(() => {});
+            }
+          }
 
           setDbSynced(true);
         }

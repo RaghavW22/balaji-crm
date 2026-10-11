@@ -33,7 +33,7 @@ const POLL_INTERVAL_SECONDS = parseInt(process.env.POLL_INTERVAL_SECONDS || '15'
 // Auto Email Reply Settings
 const AUTO_REPLY_ENABLED = (process.env.AUTO_REPLY_EMAIL_ENABLED || 'true').trim().toLowerCase() === 'true';
 const SMTP_HOST = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
-const SMTP_PORT = parseInt(process.env.SMTP_PORT || '587', 10);
+const SMTP_PORT = parseInt(process.env.SMTP_PORT || '465', 10);
 const SMTP_FROM_NAME = (process.env.SMTP_FROM_NAME || 'Balaji Enterprises').trim();
 
 // Note: Firebase is NOT initialized in the backend fetcher.
@@ -569,16 +569,27 @@ async function sendProductReplyEmail(transporter, toEmail, buyerName, prod, cidM
     `a. Plot No-U-1, Electronic Zone Square, Beside TCI Fright Godown, MIDC Hingna Nagpur - 440016`
   ].filter(l => l !== null).join('\n');
 
-  await transporter.sendMail({
+  const mailOptions = {
     from: `"${SMTP_FROM_NAME}" <${SELLER_EMAIL}>`,
     to: toEmail,
     subject: `${prod.name} — Balaji Enterprises`,
     html: htmlBody,
     text: textBody,
     attachments: attachmentsForProd
-  });
+  };
 
-  console.log(`${c.green}✅ Product email sent: "${prod.name}" → ${toEmail}${c.reset}`);
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`${c.green}✅ Product email sent: "${prod.name}" → ${toEmail}${c.reset}`);
+  } catch (primaryErr) {
+    if (fallbackTransporter) {
+      console.log(`${c.yellow}⚠️ Primary SMTP failed (${primaryErr.message}). Retrying via direct SSL Port 465 fallback...${c.reset}`);
+      await fallbackTransporter.sendMail(mailOptions);
+      console.log(`${c.green}✅ Product email sent via fallback: "${prod.name}" → ${toEmail}${c.reset}`);
+    } else {
+      throw primaryErr;
+    }
+  }
 }
 
 // ----------------------------------------------------------------------
@@ -591,12 +602,43 @@ async function sendAutoReplyEmail(toEmail, lead, originalSubject) {
   }
 
   const cleanPassword = SELLER_APP_PASSWORD.replace(/\s+/g, '');
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_PORT === 465,
+  const isGmail = SMTP_HOST === 'smtp.gmail.com' || (SELLER_EMAIL && SELLER_EMAIL.includes('@gmail.com'));
+
+  // Primary transporter: uses SSL 465 or service: 'gmail' (port 587 is blocked on cloud hosts like Render)
+  const transporter = nodemailer.createTransport(
+    isGmail
+      ? {
+          service: 'gmail',
+          host: 'smtp.gmail.com',
+          port: 465,
+          secure: true,
+          auth: { user: SELLER_EMAIL, pass: cleanPassword },
+          tls: { rejectUnauthorized: false },
+          connectionTimeout: 15000,
+          greetingTimeout: 15000,
+          socketTimeout: 25000
+        }
+      : {
+          host: SMTP_HOST,
+          port: SMTP_PORT,
+          secure: SMTP_PORT === 465,
+          auth: { user: SELLER_EMAIL, pass: cleanPassword },
+          tls: { rejectUnauthorized: false },
+          connectionTimeout: 15000,
+          greetingTimeout: 15000,
+          socketTimeout: 25000
+        }
+  );
+
+  const fallbackTransporter = nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
     auth: { user: SELLER_EMAIL, pass: cleanPassword },
-    tls: { rejectUnauthorized: false }
+    tls: { rejectUnauthorized: false },
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 25000
   });
 
   const buyerName    = lead.buyer?.name || 'Valued Customer';
@@ -653,7 +695,7 @@ async function sendAutoReplyEmail(toEmail, lead, originalSubject) {
     }
 
     try {
-      await sendProductReplyEmail(transporter, toEmail, buyerName, prod, cidMapForProd, attachmentsForProd);
+      await sendProductReplyEmail(transporter, toEmail, buyerName, prod, cidMapForProd, attachmentsForProd, fallbackTransporter);
       sentCount++;
       totalImages += attachmentsForProd.length;
 
