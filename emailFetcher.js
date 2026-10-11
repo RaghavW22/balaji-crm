@@ -1,4 +1,8 @@
 import 'dotenv/config';
+import dns from 'dns';
+if (dns.setDefaultResultOrder) {
+  dns.setDefaultResultOrder('ipv4first');
+}
 import imaps from 'imap-simple';
 import { simpleParser } from 'mailparser';
 import nodemailer from 'nodemailer';
@@ -380,7 +384,7 @@ function downloadImageBuffer(imageUrl) {
 // ----------------------------------------------------------------------
 // 📨 Send one professional product email (called once per matched catalog product)
 // ----------------------------------------------------------------------
-async function sendProductReplyEmail(transporter, toEmail, buyerName, prod, cidMap, attachmentsForProd) {
+async function sendProductReplyEmail(transporter, toEmail, buyerName, prod, cidMap, attachmentsForProd, fallbackTransporter = null) {
   // Build inline image rows for this product
   const cids = cidMap[prod.id] || [];
   const imageRowsHtml = cids.length > 0
@@ -582,10 +586,14 @@ async function sendProductReplyEmail(transporter, toEmail, buyerName, prod, cidM
     await transporter.sendMail(mailOptions);
     console.log(`${c.green}✅ Product email sent: "${prod.name}" → ${toEmail}${c.reset}`);
   } catch (primaryErr) {
+    console.log(`${c.yellow}⚠️ Primary SMTP failed (${primaryErr.message}). Retrying via fallback...${c.reset}`);
     if (fallbackTransporter) {
-      console.log(`${c.yellow}⚠️ Primary SMTP failed (${primaryErr.message}). Retrying via direct SSL Port 465 fallback...${c.reset}`);
-      await fallbackTransporter.sendMail(mailOptions);
-      console.log(`${c.green}✅ Product email sent via fallback: "${prod.name}" → ${toEmail}${c.reset}`);
+      try {
+        await fallbackTransporter.sendMail(mailOptions);
+        console.log(`${c.green}✅ Product email sent via fallback: "${prod.name}" → ${toEmail}${c.reset}`);
+      } catch (fallbackErr) {
+        throw new Error(`Primary failed: ${primaryErr.message} | Fallback failed: ${fallbackErr.message}`);
+      }
     } else {
       throw primaryErr;
     }
@@ -602,35 +610,9 @@ async function sendAutoReplyEmail(toEmail, lead, originalSubject) {
   }
 
   const cleanPassword = SELLER_APP_PASSWORD.replace(/\s+/g, '');
-  const isGmail = SMTP_HOST === 'smtp.gmail.com' || (SELLER_EMAIL && SELLER_EMAIL.includes('@gmail.com'));
 
-  // Primary transporter: uses SSL 465 or service: 'gmail' (port 587 is blocked on cloud hosts like Render)
-  const transporter = nodemailer.createTransport(
-    isGmail
-      ? {
-          service: 'gmail',
-          host: 'smtp.gmail.com',
-          port: 465,
-          secure: true,
-          auth: { user: SELLER_EMAIL, pass: cleanPassword },
-          tls: { rejectUnauthorized: false },
-          connectionTimeout: 15000,
-          greetingTimeout: 15000,
-          socketTimeout: 25000
-        }
-      : {
-          host: SMTP_HOST,
-          port: SMTP_PORT,
-          secure: SMTP_PORT === 465,
-          auth: { user: SELLER_EMAIL, pass: cleanPassword },
-          tls: { rejectUnauthorized: false },
-          connectionTimeout: 15000,
-          greetingTimeout: 15000,
-          socketTimeout: 25000
-        }
-  );
-
-  const fallbackTransporter = nodemailer.createTransport({
+  // Primary transporter: direct SMTPS port 465 (SSL direct with IPv4 first)
+  const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 465,
     secure: true,
@@ -638,7 +620,17 @@ async function sendAutoReplyEmail(toEmail, lead, originalSubject) {
     tls: { rejectUnauthorized: false },
     connectionTimeout: 15000,
     greetingTimeout: 15000,
-    socketTimeout: 25000
+    socketTimeout: 30000
+  });
+
+  // Fallback transporter: Nodemailer Gmail service adapter
+  const fallbackTransporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user: SELLER_EMAIL, pass: cleanPassword },
+    tls: { rejectUnauthorized: false },
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 30000
   });
 
   const buyerName    = lead.buyer?.name || 'Valued Customer';
