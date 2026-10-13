@@ -865,7 +865,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                 }}>
                   <div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: '700', marginBottom: '4px' }}>
-                      Automated WhatsApp Reply Engine
+                      Reply Engine
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <span
