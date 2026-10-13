@@ -70,6 +70,33 @@ export const getBackendApiUrl = () => {
   return url.replace(/\/+$/, '');
 };
 
+// Helpers to track deleted lead IDs locally so auto-polling never resurrects deleted requests
+const getDeletedLeadIds = () => {
+  try {
+    return JSON.parse(localStorage.getItem('crm_deleted_lead_ids') || '[]');
+  } catch (_) {
+    return [];
+  }
+};
+
+const addDeletedLeadId = (id) => {
+  if (!id) return;
+  try {
+    const list = getDeletedLeadIds();
+    const str = String(id);
+    if (!list.includes(str)) {
+      list.push(str);
+      localStorage.setItem('crm_deleted_lead_ids', JSON.stringify(list));
+    }
+  } catch (_) {}
+};
+
+const clearDeletedLeadIds = () => {
+  try {
+    localStorage.removeItem('crm_deleted_lead_ids');
+  } catch (_) {}
+};
+
 const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
   // Navigation State ('overview' | 'requests' | 'products' | 'settings')
   const [activeTab, setActiveTab] = useState('overview');
@@ -185,10 +212,13 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
       }
 
       // 2. Fetch Buyer Product Requests (Firestore + Live Ingestion Server)
+      const deletedIds = new Set(getDeletedLeadIds());
       let combinedLeads = [];
       const leadsRes = await fetchLeadsFromFirestore(user.uid);
       if (leadsRes.success && leadsRes.leads) {
-        combinedLeads = [...leadsRes.leads];
+        combinedLeads = leadsRes.leads.filter(l => 
+          !deletedIds.has(String(l.id)) && !deletedIds.has(String(l.query_id))
+        );
       }
 
       // Also merge leads captured by the live terminal email fetcher
@@ -198,6 +228,23 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
           const localData = await localApiRes.json();
           if (localData.leads && Array.isArray(localData.leads)) {
             for (const lead of localData.leads) {
+              const qId = String(lead.query_id || '');
+              const dId = String(lead.id || '');
+              if ((qId && deletedIds.has(qId)) || (dId && deletedIds.has(dId))) {
+                // Prune from backend cache if lingering
+                fetch(`${getBackendApiUrl()}/api/delete-lead`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    id: lead.id,
+                    query_id: lead.query_id,
+                    emailUid: lead.emailUid,
+                    phone: lead.buyer?.phone,
+                    productName: lead.product?.name
+                  })
+                }).catch(() => {});
+                continue;
+              }
               const alreadyExists = combinedLeads.some(l => 
                 l.query_id === lead.query_id || 
                 (l.buyer?.phone === lead.buyer?.phone && l.product?.name === lead.product?.name)
@@ -302,7 +349,11 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
         if (apiRes.ok) {
           const apiData = await apiRes.json();
           if (apiData.leads && apiData.leads.length > 0) {
-            setInquiries(apiData.leads);
+            const deletedIds = new Set(getDeletedLeadIds());
+            const activeLeads = apiData.leads.filter(l => 
+              !deletedIds.has(String(l.id)) && !deletedIds.has(String(l.query_id))
+            );
+            setInquiries(activeLeads);
             setFetchNotice({
               type: 'success',
               text: `✅ Inbox synchronized! Loaded inquiry emails.`
@@ -463,21 +514,51 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
 
 
   // Delete Product Request Handler
-  const handleDeleteInquiry = async (inquiryId) => {
+  const handleDeleteInquiry = async (inquiryId, inquiryObj = null) => {
     if (window.confirm("Are you sure you want to delete this product request?")) {
-      setInquiries(prev => prev.filter(item => (item.id || item.query_id) !== inquiryId));
-      if (activeInquiryModal && (activeInquiryModal.id || activeInquiryModal.query_id) === inquiryId) {
+      const targetItem = inquiryObj || inquiries.find(item => (item.id || item.query_id) === inquiryId);
+      const queryId = targetItem?.query_id || (String(inquiryId).startsWith('IMQ') ? inquiryId : null);
+      const firestoreId = targetItem?.id && targetItem.id !== targetItem.query_id ? targetItem.id : (inquiryId !== queryId ? inquiryId : null);
+
+      if (inquiryId) addDeletedLeadId(inquiryId);
+      if (queryId) addDeletedLeadId(queryId);
+      if (firestoreId) addDeletedLeadId(firestoreId);
+
+      setInquiries(prev => prev.filter(item => 
+        (item.id || item.query_id) !== inquiryId && 
+        (!queryId || item.query_id !== queryId)
+      ));
+      if (activeInquiryModal && ((activeInquiryModal.id || activeInquiryModal.query_id) === inquiryId || (queryId && activeInquiryModal.query_id === queryId))) {
         setActiveInquiryModal(null);
       }
-      if (user && user.uid && inquiryId) {
-        await deleteLeadFromFirestore(user.uid, inquiryId);
+
+      if (user && user.uid) {
+        await deleteLeadFromFirestore(user.uid, firestoreId || inquiryId, queryId);
       }
+
+      try {
+        await fetch(`${getBackendApiUrl()}/api/delete-lead`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: firestoreId || inquiryId,
+            query_id: queryId,
+            emailUid: targetItem?.emailUid,
+            phone: targetItem?.buyer?.phone,
+            productName: targetItem?.product?.name
+          })
+        });
+      } catch (_) {}
     }
   };
 
   // Clear All Inquiries Handler (cleans all cached & database requests)
   const handleClearAllInquiries = async () => {
     if (window.confirm("Are you sure you want to clear all product requests?")) {
+      inquiries.forEach(item => {
+        if (item.id) addDeletedLeadId(item.id);
+        if (item.query_id) addDeletedLeadId(item.query_id);
+      });
       setInquiries([]);
       setActiveInquiryModal(null);
       if (user && user.uid) {
@@ -966,7 +1047,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                                 <button
                                   className="btn-secondary"
                                   style={{ width: 'auto', padding: '0.4rem 0.65rem', fontSize: '0.78rem', color: 'var(--accent-rose)', borderColor: 'rgba(244, 63, 94, 0.3)' }}
-                                  onClick={() => handleDeleteInquiry(inquiry.id || inquiry.query_id)}
+                                  onClick={() => handleDeleteInquiry(inquiry.id || inquiry.query_id, inquiry)}
                                   title="Delete Product Request"
                                 >
                                   <Trash2 size={14} />
@@ -1204,7 +1285,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                               <span>View Inquiry Details</span>
                             </button>
                             <button
-                              onClick={() => handleDeleteInquiry(inquiry.id || inquiry.query_id)}
+                              onClick={() => handleDeleteInquiry(inquiry.id || inquiry.query_id, inquiry)}
                               className="btn-secondary"
                               style={{ fontSize: '0.85rem', padding: '0.65rem 1rem', width: 'auto', color: 'var(--accent-rose)', borderColor: 'rgba(244, 63, 94, 0.35)' }}
                               title="Delete Product Request"
@@ -1749,7 +1830,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <button
-                  onClick={() => handleDeleteInquiry(activeInquiryModal.id || activeInquiryModal.query_id)}
+                  onClick={() => handleDeleteInquiry(activeInquiryModal.id || activeInquiryModal.query_id, activeInquiryModal)}
                   className="btn-secondary"
                   style={{
                     padding: '0.4rem 0.85rem',

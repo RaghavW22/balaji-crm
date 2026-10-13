@@ -260,6 +260,15 @@ const ApiSettingsModal = ({ isOpen, onClose, user, onDataCleared }) => {
         await clearAllLeadsFromFirestore(user.uid);
       }
 
+      // Also clear from backend server cache and reset local deletion tracker
+      try {
+        const url = (backendApiUrl || localStorage.getItem('backend_api_url') || DEFAULT_BACKEND_API_URL).replace(/\/+$/, '');
+        await fetch(`${url}/api/clear-leads`, { method: 'POST' });
+      } catch (_) {}
+      try {
+        localStorage.removeItem('crm_deleted_lead_ids');
+      } catch (_) {}
+
       setIsClearingLeads(false);
 
       if (onDataCleared) {

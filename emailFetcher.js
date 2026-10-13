@@ -84,6 +84,7 @@ import fs from 'fs';
 
 const LEADS_FILE         = './leads_cache.json';
 const PROCESSED_UIDS_FILE = './processed_uids.json';
+const DELETED_LEADS_FILE = './deleted_leads_cache.json'; // Tracks deleted lead identifiers to prevent resurrection
 const PRODUCTS_FILE      = './products_cache.json';    // Written by frontend via POST /api/sync-products
 const SENT_REPLIES_FILE  = './sent_replies_cache.json'; // Stores all auto-reply emails sent by the backend
 
@@ -98,19 +99,55 @@ try {
   processedUids = new Set();
 }
 
+// Load or initialize deleted lead identifiers
+let deletedLeads = new Set();
+try {
+  if (fs.existsSync(DELETED_LEADS_FILE)) {
+    const raw = fs.readFileSync(DELETED_LEADS_FILE, 'utf8');
+    deletedLeads = new Set(JSON.parse(raw || '[]'));
+  }
+} catch (e) {
+  deletedLeads = new Set();
+}
+
+function recordDeletedLead(identifier) {
+  if (!identifier) return;
+  deletedLeads.add(String(identifier));
+  try {
+    fs.writeFileSync(DELETED_LEADS_FILE, JSON.stringify([...deletedLeads], null, 2));
+  } catch (_) {}
+}
+
+function isLeadDeleted(lead) {
+  if (!lead) return false;
+  if (lead.query_id && deletedLeads.has(String(lead.query_id))) return true;
+  if (lead.id && deletedLeads.has(String(lead.id))) return true;
+  if (lead.emailUid && deletedLeads.has(String(lead.emailUid))) return true;
+  return false;
+}
+
 // Helper to save leads locally so the website can immediately access them
 function saveLeadToCache(leadData) {
   try {
+    if (isLeadDeleted(leadData)) {
+      console.log(`ℹ️ Lead (${leadData.query_id || leadData.emailUid || 'N/A'}) was previously deleted by user. Skipping cache.`);
+      return;
+    }
     let existing = [];
     if (fs.existsSync(LEADS_FILE)) {
       const raw = fs.readFileSync(LEADS_FILE, 'utf8');
       existing = JSON.parse(raw || '[]');
     }
+    // Prune any deleted leads that might still be in the file
+    existing = existing.filter(item => !isLeadDeleted(item));
+
     // Prevent duplicate entries:
     // 1) Same emailUid
-    // 2) Same buyer phone AND same product name (prevents duplicate forwards of the exact same inquiry)
+    // 2) Same query_id
+    // 3) Same buyer phone AND same product name (prevents duplicate forwards of the exact same inquiry)
     const isDup = existing.some(item => 
       (leadData.emailUid && item.emailUid === leadData.emailUid) ||
+      (leadData.query_id && item.query_id === leadData.query_id) ||
       (item.buyer?.phone && leadData.buyer?.phone && 
        item.buyer.phone === leadData.buyer.phone && 
        item.product?.name === leadData.product?.name)
@@ -183,6 +220,11 @@ async function displayAndProcessEmail(rawBody, senderRaw, subjectRaw, dateRaw, u
   }
 
   const lead = parseResult.data;
+  if (isLeadDeleted({ ...lead, emailUid: uid })) {
+    console.log(`ℹ️ Lead (${lead.query_id || uid || 'N/A'}) was previously deleted by user. Skipping duplicate re-processing.`);
+    console.log(`${c.magenta}================================================================================${c.reset}\n`);
+    return false;
+  }
   console.log(`\n${c.green}📋 EXTRACTED CRM LEAD INFORMATION:${c.reset}`);
   console.log(`     • ${c.bold}Product Name   :${c.reset} ${c.cyan}${lead.product?.name}${c.reset}`);
   console.log(`     • ${c.bold}Required Qty   :${c.reset} ${lead.product?.quantity || 'N/A'}`);
@@ -940,6 +982,7 @@ const apiServer = http.createServer((req, res) => {
     if (fs.existsSync(LEADS_FILE)) {
       try {
         leads = JSON.parse(fs.readFileSync(LEADS_FILE, 'utf8') || '[]');
+        leads = leads.filter(l => !isLeadDeleted(l));
       } catch (_) {}
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -953,6 +996,7 @@ const apiServer = http.createServer((req, res) => {
       if (fs.existsSync(LEADS_FILE)) {
         try {
           leads = JSON.parse(fs.readFileSync(LEADS_FILE, 'utf8') || '[]');
+          leads = leads.filter(l => !isLeadDeleted(l));
         } catch (_) {}
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -964,9 +1008,88 @@ const apiServer = http.createServer((req, res) => {
     return;
   }
 
+  // ── POST /api/delete-lead — delete a single lead from cache ──
+  if (req.url === '/api/delete-lead' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        let leads = [];
+        if (fs.existsSync(LEADS_FILE)) {
+          leads = JSON.parse(fs.readFileSync(LEADS_FILE, 'utf8') || '[]');
+        }
+
+        // Record identifiers in persistent deleted set
+        if (payload.query_id) recordDeletedLead(payload.query_id);
+        if (payload.id) recordDeletedLead(payload.id);
+        if (payload.emailUid) {
+          recordDeletedLead(payload.emailUid);
+          processedUids.add(Number(payload.emailUid));
+          try {
+            fs.writeFileSync(PROCESSED_UIDS_FILE, JSON.stringify([...processedUids], null, 2));
+          } catch (_) {}
+        }
+
+        leads = leads.filter(l => {
+          if (payload.query_id && (l.query_id === payload.query_id || l.id === payload.query_id)) {
+            if (l.emailUid) processedUids.add(Number(l.emailUid));
+            return false;
+          }
+          if (payload.id && (l.id === payload.id || l.query_id === payload.id)) {
+            if (l.emailUid) processedUids.add(Number(l.emailUid));
+            return false;
+          }
+          if (payload.emailUid && l.emailUid == payload.emailUid) {
+            processedUids.add(Number(l.emailUid));
+            return false;
+          }
+          if (payload.phone && payload.productName &&
+              l.buyer?.phone === payload.phone && l.product?.name === payload.productName) {
+            if (l.emailUid) processedUids.add(Number(l.emailUid));
+            if (l.query_id) recordDeletedLead(l.query_id);
+            return false;
+          }
+          return true;
+        });
+
+        fs.writeFileSync(LEADS_FILE, JSON.stringify(leads, null, 2));
+        try {
+          fs.writeFileSync(PROCESSED_UIDS_FILE, JSON.stringify([...processedUids], null, 2));
+        } catch (_) {}
+
+        console.log(`🗑️ Deleted lead (${payload.query_id || payload.id || 'N/A'}) from local cache.`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, count: leads.length }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
   if (req.url === '/api/clear-leads' && req.method === 'POST') {
     try {
+      let leads = [];
+      if (fs.existsSync(LEADS_FILE)) {
+        try {
+          leads = JSON.parse(fs.readFileSync(LEADS_FILE, 'utf8') || '[]');
+        } catch (_) {}
+      }
+      for (const l of leads) {
+        if (l.query_id) recordDeletedLead(l.query_id);
+        if (l.id) recordDeletedLead(l.id);
+        if (l.emailUid) {
+          recordDeletedLead(l.emailUid);
+          processedUids.add(Number(l.emailUid));
+        }
+      }
       fs.writeFileSync(LEADS_FILE, JSON.stringify([], null, 2));
+      try {
+        fs.writeFileSync(PROCESSED_UIDS_FILE, JSON.stringify([...processedUids], null, 2));
+      } catch (_) {}
+      console.log(`🧹 All product requests cleared and marked as processed.`);
     } catch (_) {}
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true, message: 'All leads cleared' }));

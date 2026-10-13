@@ -19,7 +19,8 @@ import {
   addDoc,
   deleteDoc,
   query,
-  orderBy
+  orderBy,
+  where
 } from "firebase/firestore";
 import { getAnalytics, isSupported } from "firebase/analytics";
 
@@ -192,10 +193,28 @@ export const fetchLeadsFromFirestore = async (userId) => {
 /**
  * Delete a single Product Request from Firestore Database
  */
-export const deleteLeadFromFirestore = async (userId, leadId) => {
+export const deleteLeadFromFirestore = async (userId, leadId, queryId = null) => {
   try {
-    const leadRef = doc(db, "users", userId, "leads", leadId);
-    await deleteDoc(leadRef);
+    if (leadId) {
+      try {
+        const leadRef = doc(db, "users", userId, "leads", leadId);
+        await deleteDoc(leadRef);
+      } catch (_) {}
+    }
+    if (queryId && queryId !== leadId) {
+      try {
+        const leadsRef = collection(db, "users", userId, "leads");
+        const q = query(leadsRef, where("query_id", "==", queryId));
+        const snapshot = await getDocs(q);
+        const deletes = [];
+        snapshot.forEach(docSnap => {
+          deletes.push(deleteDoc(doc(db, "users", userId, "leads", docSnap.id)));
+        });
+        if (deletes.length > 0) {
+          await Promise.all(deletes);
+        }
+      } catch (_) {}
+    }
     return { success: true };
   } catch (error) {
     console.warn("Firestore lead delete warning:", error.message);
