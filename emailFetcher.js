@@ -635,10 +635,11 @@ async function getSmtpTransporters() {
     socketTimeout: 35000
   });
 
+  // Fallback: Port 587 STARTTLS (open and unrestricted on Koyeb)
   const fallback = nodemailer.createTransport({
     host: fallbackHost,
-    port: targetPort,
-    secure: targetPort === 465,
+    port: 587,
+    secure: false,
     tls: {
       servername: targetHost,
       rejectUnauthorized: false
@@ -1027,8 +1028,8 @@ apiServer.on('error', (err) => {
   }
 });
 
-apiServer.listen(API_PORT, () => {
-  console.log(`🌐 ${c.green}Live Ingestion API Server online (Port: ${API_PORT}) | Cloud: https://balaji-email-engine.onrender.com${c.reset}`);
+apiServer.listen(API_PORT, '0.0.0.0', () => {
+  console.log(`🌐 ${c.green}Live Ingestion API Server online (Port: ${API_PORT}) | Engine Ready${c.reset}`);
 });
 
 // ----------------------------------------------------------------------

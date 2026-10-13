@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "concurrently -n \"FRONTEND,BACKEND-FETCHER\" -c \"cyan,magenta\" \"npm run dev\" \"npm run server\"",
+    "start": "node emailFetcher.js",
     "dev": "vite",
     "server": "node --watch emailFetcher.js",
     "read-emails": "node --watch emailFetcher.js",
