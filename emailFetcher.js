@@ -39,6 +39,7 @@ const AUTO_REPLY_ENABLED = (process.env.AUTO_REPLY_EMAIL_ENABLED || 'true').trim
 const SMTP_HOST = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || '465', 10);
 const SMTP_FROM_NAME = (process.env.SMTP_FROM_NAME || 'Balaji Enterprises').trim();
+const GOOGLE_SCRIPT_WEBHOOK_URL = (process.env.GOOGLE_SCRIPT_WEBHOOK_URL || 'https://script.google.com/macros/s/AKfycbzy0XG4GVI6jgPv_IO7DAUI5oTEEQ9RhL38vT8JmNLSa6Gxtk6NESSkYOJDpqQmxzhE/exec').trim();
 
 // Note: Firebase is NOT initialized in the backend fetcher.
 // The Node.js process cannot authenticate as a Firestore user, which would cause
@@ -573,6 +574,46 @@ async function sendProductReplyEmail(transporter, toEmail, buyerName, prod, cidM
     `a. Plot No-U-1, Electronic Zone Square, Beside TCI Fright Godown, MIDC Hingna Nagpur - 440016`
   ].filter(l => l !== null).join('\n');
 
+  // ── Primary Delivery: Google Apps Script HTTPS Webhook (Port 443 — 100% reliable on Render) ──
+  if (GOOGLE_SCRIPT_WEBHOOK_URL) {
+    try {
+      console.log(`${c.cyan}🚀 Sending email via Google Apps Script HTTPS Webhook...${c.reset}`);
+      const imagesForWebhook = (attachmentsForProd || []).map(a => ({
+        cid: a.cid,
+        base64: a.content ? Buffer.from(a.content).toString('base64') : '',
+        contentType: a.contentType || 'image/jpeg',
+        filename: a.filename || 'product.jpg'
+      }));
+
+      const res = await fetch(GOOGLE_SCRIPT_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: toEmail,
+          subject: `${prod.name} — Balaji Enterprises`,
+          text: textBody,
+          html: htmlBody,
+          fromName: SMTP_FROM_NAME,
+          images: imagesForWebhook
+        })
+      });
+
+      const resText = await res.text();
+      let resJson = {};
+      try { resJson = JSON.parse(resText); } catch (_) {}
+
+      if (res.ok && resJson.success) {
+        console.log(`${c.green}✅ Product email sent via Google Apps Script: "${prod.name}" → ${toEmail}${c.reset}`);
+        return;
+      } else {
+        console.log(`${c.yellow}⚠️ Webhook response: ${resText.slice(0, 150)}. Falling back to SMTP...${c.reset}`);
+      }
+    } catch (whErr) {
+      console.log(`${c.yellow}⚠️ Webhook delivery failed (${whErr.message}). Falling back to SMTP...${c.reset}`);
+    }
+  }
+
+  // ── Fallback Delivery: Direct SMTP (for local dev / environments with unblocked SMTP ports) ──
   const mailOptions = {
     from: `"${SMTP_FROM_NAME}" <${SELLER_EMAIL}>`,
     to: toEmail,
@@ -584,7 +625,7 @@ async function sendProductReplyEmail(transporter, toEmail, buyerName, prod, cidM
 
   try {
     await transporter.sendMail(mailOptions);
-    console.log(`${c.green}✅ Product email sent: "${prod.name}" → ${toEmail}${c.reset}`);
+    console.log(`${c.green}✅ Product email sent via SMTP: "${prod.name}" → ${toEmail}${c.reset}`);
   } catch (primaryErr) {
     console.log(`${c.yellow}⚠️ Primary SMTP failed (${primaryErr.message}). Retrying via fallback...${c.reset}`);
     if (fallbackTransporter) {
