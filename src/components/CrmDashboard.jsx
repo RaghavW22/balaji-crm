@@ -23,7 +23,7 @@ import {
   Plus,
   Trash2,
   Tag,
-  DollarSign,
+  IndianRupee,
   CheckCircle2,
   Menu,
   Check,
@@ -490,10 +490,13 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
     setIsSubmittingProduct(true);
     setProductFormNotice(null);
 
+    let formattedPrice = newProduct.price.trim().replace(/^\$/, '₹');
+    if (!formattedPrice.startsWith('₹')) formattedPrice = `₹${formattedPrice}`;
+
     const productPayload = {
       name: newProduct.name.trim(),
       group: (newProduct.group || '').trim() || 'General',
-      price: newProduct.price.startsWith('₹') || newProduct.price.startsWith('$') ? newProduct.price.trim() : `₹${newProduct.price.trim()}`,
+      price: formattedPrice,
       unit: newProduct.unit.trim() || 'per unit',
       imageUrl: newProduct.imageUrl.trim() || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=600&auto=format&fit=crop',
       extraImageUrls: newProduct.extraImageUrls.trim()
@@ -1648,7 +1651,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                             <div className="product-price-box">
                               <div>
                                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Price</div>
-                                <div className="product-price-val">{product.price}</div>
+                                <div className="product-price-val">{(product.price || '').replace(/^\$/, '₹')}</div>
                               </div>
                               <div style={{ textAlign: 'right' }}>
                                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Pricing Unit</div>
@@ -1945,9 +1948,9 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 {/* 3. Price */}
                 <div className="form-group">
-                  <label className="form-label">3. Price (INR / Currency) *</label>
+                  <label className="form-label">3. Price (INR / Rupees) *</label>
                   <div className="input-container">
-                    <DollarSign size={16} className="input-icon" />
+                    <IndianRupee size={16} className="input-icon" />
                     <input
                       type="text"
                       required
