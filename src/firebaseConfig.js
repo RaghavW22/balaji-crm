@@ -17,6 +17,7 @@ import {
   collection,
   getDocs,
   addDoc,
+  updateDoc,
   deleteDoc,
   query,
   orderBy,
@@ -255,6 +256,24 @@ export const saveProductToFirestore = async (userId, productData) => {
     return { success: true, id: docRef.id };
   } catch (error) {
     console.warn("Firestore product add warning:", error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Update an existing Seller Product in Firestore Database
+ * Path: users/{userId}/products/{productId}
+ */
+export const updateProductInFirestore = async (userId, productId, productData) => {
+  try {
+    const productRef = doc(db, "users", userId, "products", productId);
+    await updateDoc(productRef, {
+      ...productData,
+      updatedAt: new Date().toISOString()
+    });
+    return { success: true };
+  } catch (error) {
+    console.warn("Firestore product update warning:", error.message);
     return { success: false, error: error.message };
   }
 };

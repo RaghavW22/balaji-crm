@@ -479,6 +479,64 @@ function downloadImageBuffer(imageUrl) {
 }
 
 // ----------------------------------------------------------------------
+// 📄 Download PDF Brochure Buffer (Handles Google Drive links & HTTP 301/302 redirects)
+// ----------------------------------------------------------------------
+function normalizePdfUrl(url) {
+  if (!url || typeof url !== 'string') return '';
+  let u = url.trim();
+  // Automatically convert Google Drive share links into direct export download URLs
+  const gdMatch = u.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || u.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (u.includes('drive.google.com') && gdMatch && gdMatch[1]) {
+    return `https://drive.google.com/uc?export=download&id=${gdMatch[1]}`;
+  }
+  return u;
+}
+
+function downloadPdfBuffer(pdfUrl, maxRedirects = 5) {
+  return new Promise((resolve) => {
+    const targetUrl = normalizePdfUrl(pdfUrl);
+    if (!targetUrl || !targetUrl.startsWith('http')) { resolve(null); return; }
+
+    function fetchUrl(currUrl, hops) {
+      if (hops <= 0) { resolve(null); return; }
+      try {
+        const parsed = new URL(currUrl);
+        const protocol = parsed.protocol === 'https:' ? https : http;
+        let settled = false;
+        const done = (val) => { if (!settled) { settled = true; resolve(val); } };
+
+        const req = protocol.get(currUrl, { timeout: 15000 }, (res) => {
+          if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+            res.resume();
+            try {
+              const nextUrl = new URL(res.headers.location, currUrl).toString();
+              fetchUrl(nextUrl, hops - 1);
+            } catch (_) { done(null); }
+            return;
+          }
+          if (res.statusCode !== 200) { res.resume(); done(null); return; }
+          const chunks = [];
+          res.on('data', chunk => chunks.push(chunk));
+          res.on('end', () => {
+            const buffer = Buffer.concat(chunks);
+            const contentType = res.headers['content-type'] || 'application/pdf';
+            done({ buffer, contentType });
+          });
+          res.on('error', () => done(null));
+        });
+        req.setTimeout(15000, () => { req.destroy(); done(null); });
+        req.on('error', () => {
+          if (req && !req.destroyed) req.destroy();
+          done(null);
+        });
+      } catch (_) { resolve(null); }
+    }
+
+    fetchUrl(targetUrl, maxRedirects);
+  });
+}
+
+// ----------------------------------------------------------------------
 // 📨 Send one professional product email (called once per matched catalog product)
 // ----------------------------------------------------------------------
 async function sendProductReplyEmail(transporter, toEmail, buyerName, prod, cidMap, attachmentsForProd, fallbackTransporter = null) {
@@ -609,6 +667,32 @@ async function sendProductReplyEmail(transporter, toEmail, buyerName, prod, cidM
     </td>
   </tr>
 
+  ${prod.pdfUrl ? `
+  <!-- PRODUCT PDF BROCHURE / CATALOGUE -->
+  <tr>
+    <td style="padding:0 22px 18px">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0"
+        style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 16px">
+        <tr>
+          <td style="vertical-align:middle;padding-right:12px">
+            <div style="font-size:14px;font-weight:700;color:#166534;line-height:1.4">
+              📄 Official Product Catalogue / Brochure Attached
+            </div>
+            <div style="font-size:12px;color:#15803d;margin-top:3px;line-height:1.4">
+              Detailed specifications and technical data sheet are attached as a PDF to this email.
+            </div>
+          </td>
+          <td align="right" style="vertical-align:middle;white-space:nowrap">
+            <a href="${prod.pdfUrl}" target="_blank"
+              style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;font-weight:700;font-size:12px;padding:8px 14px;border-radius:6px">
+              View Online PDF &rarr;
+            </a>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>` : ''}
+
   <!-- CLOSING NOTE -->
   <tr>
     <td style="padding:0 22px 18px">
@@ -663,6 +747,7 @@ async function sendProductReplyEmail(transporter, toEmail, buyerName, prod, cidM
     `  Price : ${prod.price} ${prod.unit || 'per unit'}`,
     prod.specs       ? `  Specs : ${prod.specs}` : null,
     prod.description ? `  Info  : ${prod.description}` : null,
+    prod.pdfUrl      ? `  PDF Brochure: Attached to this email (${prod.pdfUrl})` : null,
     ``,
     `Warm Regards,`,
     `Balaji Enterprises - 9022015965`,
@@ -674,11 +759,18 @@ async function sendProductReplyEmail(transporter, toEmail, buyerName, prod, cidM
   if (GOOGLE_SCRIPT_WEBHOOK_URL) {
     try {
       console.log(`${c.cyan}🚀 Sending email via Google Apps Script HTTPS Webhook...${c.reset}`);
-      const imagesForWebhook = (attachmentsForProd || []).map(a => ({
+      const imagesForWebhook = (attachmentsForProd || []).filter(a => a.cid).map(a => ({
         cid: a.cid,
         base64: a.content ? Buffer.from(a.content).toString('base64') : '',
         contentType: a.contentType || 'image/jpeg',
         filename: a.filename || 'product.jpg'
+      }));
+
+      const allAttachmentsForWebhook = (attachmentsForProd || []).map(a => ({
+        cid: a.cid || '',
+        base64: a.content ? Buffer.from(a.content).toString('base64') : '',
+        contentType: a.contentType || (a.filename?.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
+        filename: a.filename || 'attachment'
       }));
 
       const res = await fetch(GOOGLE_SCRIPT_WEBHOOK_URL, {
@@ -690,7 +782,8 @@ async function sendProductReplyEmail(transporter, toEmail, buyerName, prod, cidM
           text: textBody,
           html: htmlBody,
           fromName: SMTP_FROM_NAME,
-          images: imagesForWebhook
+          images: imagesForWebhook,
+          attachments: allAttachmentsForWebhook
         })
       });
 
@@ -855,6 +948,26 @@ async function sendAutoReplyEmail(toEmail, lead, originalSubject) {
       console.log(`${c.green}🖼️  ${cids.length} image(s) ready for "${prod.name}"${c.reset}`);
     }
 
+    // PDF Brochure / Catalogue Attachment
+    let hasPdfAttached = false;
+    if (prod.pdfUrl) {
+      console.log(`${c.cyan}📄 Downloading PDF catalogue for "${prod.name}"...${c.reset}`);
+      const pdfData = await downloadPdfBuffer(prod.pdfUrl);
+      if (pdfData && pdfData.buffer && pdfData.buffer.length > 0) {
+        const cleanName = (prod.name || 'Product').replace(/[^a-z0-9]/gi, '_');
+        const pdfFilename = `${cleanName}_Catalogue.pdf`;
+        attachmentsForProd.push({
+          filename: pdfFilename,
+          content: pdfData.buffer,
+          contentType: 'application/pdf'
+        });
+        hasPdfAttached = true;
+        console.log(`${c.green}📎 Attached PDF catalogue: ${pdfFilename} (${(pdfData.buffer.length / 1024).toFixed(1)} KB)${c.reset}`);
+      } else {
+        console.log(`${c.yellow}⚠️ Could not download PDF catalogue from: ${prod.pdfUrl}${c.reset}`);
+      }
+    }
+
     try {
       await sendProductReplyEmail(transporter, toEmail, buyerName, prod, cidMapForProd, attachmentsForProd, fallbackTransporter);
       sentCount++;
@@ -868,7 +981,8 @@ async function sendAutoReplyEmail(toEmail, lead, originalSubject) {
         productName: prod.name,
         matchedProductName: prod.name,
         enquiredItem,
-        imageCount: attachmentsForProd.length
+        imageCount: cids.length,
+        hasPdf: hasPdfAttached
       });
     } catch (err) {
       console.log(`${c.yellow}⚠️  Failed to send email for "${prod.name}": ${err.message}${c.reset}`);

@@ -35,7 +35,8 @@ import {
   Play,
   Pause,
   Power,
-  Send
+  Send,
+  Edit2
 } from 'lucide-react';
 import {
   logoutUser,
@@ -46,6 +47,7 @@ import {
   deleteLeadFromFirestore,
   clearAllLeadsFromFirestore,
   saveProductToFirestore,
+  updateProductInFirestore,
   fetchProductsFromFirestore,
   deleteProductFromFirestore,
   clearAllSentRepliesFromFirestore,
@@ -140,8 +142,9 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
   // Sent auto-reply emails log
   const [sentReplies, setSentReplies] = useState([]);
 
-  // Add New Product Form State
+  // Add/Edit Product Form State
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
   const [isSubmittingProduct, setIsSubmittingProduct] = useState(false);
   const [productFormNotice, setProductFormNotice] = useState(null);
 
@@ -151,6 +154,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
     unit: 'per unit',
     imageUrl: '',
     extraImageUrls: '',
+    pdfUrl: '',
     description: '',
     specs: ''
   });
@@ -436,7 +440,41 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
     setIsFetchingEmail(false);
   };
 
-  // Add Product Submit Handler
+  // Open Add Product Modal (clean form)
+  const handleOpenAddProduct = () => {
+    setEditingProduct(null);
+    setNewProduct({
+      name: '',
+      price: '',
+      unit: 'per unit',
+      imageUrl: '',
+      extraImageUrls: '',
+      pdfUrl: '',
+      description: '',
+      specs: ''
+    });
+    setProductFormNotice(null);
+    setIsAddProductModalOpen(true);
+  };
+
+  // Open Edit Product Modal (pre-filled with current product)
+  const handleOpenEditProduct = (prod) => {
+    setEditingProduct(prod);
+    setNewProduct({
+      name: prod.name || '',
+      price: prod.price || '',
+      unit: prod.unit || 'per unit',
+      imageUrl: prod.imageUrl || '',
+      extraImageUrls: Array.isArray(prod.extraImageUrls) ? prod.extraImageUrls.join('\n') : (prod.extraImageUrls || ''),
+      pdfUrl: prod.pdfUrl || '',
+      description: prod.description || '',
+      specs: prod.specs || ''
+    });
+    setProductFormNotice(null);
+    setIsAddProductModalOpen(true);
+  };
+
+  // Add / Edit Product Submit Handler
   const handleAddProductSubmit = async (e) => {
     e.preventDefault();
     if (!newProduct.name.trim() || !newProduct.price.trim()) {
@@ -455,22 +493,29 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
       extraImageUrls: newProduct.extraImageUrls.trim()
         ? newProduct.extraImageUrls.split(/[,\n]+/).map(s => s.trim()).filter(u => u.startsWith('http'))
         : [],
+      pdfUrl: (newProduct.pdfUrl || '').trim(),
       description: newProduct.description.trim() || 'No description provided.',
       specs: newProduct.specs.trim() || 'Standard Specifications',
       updatedAt: new Date().toISOString()
     };
 
-    let result = { success: true, id: `local-prod-${Date.now()}` };
+    let result = { success: true, id: editingProduct ? editingProduct.id : `local-prod-${Date.now()}` };
     if (user && user.uid) {
-      result = await saveProductToFirestore(user.uid, productPayload);
+      if (editingProduct) {
+        result = await updateProductInFirestore(user.uid, editingProduct.id, productPayload);
+      } else {
+        result = await saveProductToFirestore(user.uid, productPayload);
+      }
       localStorage.setItem(`products_initialized_${user.uid}`, 'true');
     }
 
     if (result.success) {
-      const addedProduct = { id: result.id, ...productPayload };
+      const savedProduct = { id: editingProduct ? editingProduct.id : result.id, ...productPayload };
       setProducts(prev => {
-        const updated = [addedProduct, ...prev];
-        // Sync updated catalog to email server for image embedding in auto-reply
+        const updated = editingProduct
+          ? prev.map(p => p.id === editingProduct.id ? savedProduct : p)
+          : [savedProduct, ...prev];
+        // Sync updated catalog to email server for image and pdf embedding in auto-reply
         fetch(`${getBackendApiUrl()}/api/sync-products`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -479,9 +524,13 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
         return updated;
       });
 
-      setProductFormNotice({ type: 'success', text: 'Product added successfully!' });
+      setProductFormNotice({ 
+        type: 'success', 
+        text: editingProduct ? 'Product updated successfully!' : 'Product added successfully!' 
+      });
       setTimeout(() => {
         setIsAddProductModalOpen(false);
+        setEditingProduct(null);
         setProductFormNotice(null);
         setNewProduct({
           name: '',
@@ -489,6 +538,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
           unit: 'per unit',
           imageUrl: '',
           extraImageUrls: '',
+          pdfUrl: '',
           description: '',
           specs: ''
         });
@@ -1379,7 +1429,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                     <button
                       className="btn-primary"
                       style={{ width: 'auto', padding: '0.65rem 1.25rem', fontSize: '0.88rem' }}
-                      onClick={() => setIsAddProductModalOpen(true)}
+                      onClick={handleOpenAddProduct}
                     >
                       <Plus size={18} />
                       <span>Add New Product</span>
@@ -1407,7 +1457,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                     <button
                       className="btn-primary"
                       style={{ width: 'auto', margin: '0 auto', padding: '0.65rem 1.25rem', fontSize: '0.88rem' }}
-                      onClick={() => setIsAddProductModalOpen(true)}
+                      onClick={handleOpenAddProduct}
                     >
                       <Plus size={16} />
                       <span>Add New Product Now</span>
@@ -1436,13 +1486,22 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                             <div>
                               <h3 className="product-title">{product.name}</h3>
                             </div>
-                            <button
-                              onClick={() => handleDeleteProduct(product.id)}
-                              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.2rem' }}
-                              title="Delete Product"
-                            >
-                              <Trash2 size={16} style={{ color: 'var(--accent-rose)' }} />
-                            </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <button
+                                onClick={() => handleOpenEditProduct(product)}
+                                style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', padding: '0.2rem' }}
+                                title="Edit Product in Catalog"
+                              >
+                                <Edit2 size={16} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteProduct(product.id)}
+                                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.2rem' }}
+                                title="Delete Product"
+                              >
+                                <Trash2 size={16} style={{ color: 'var(--accent-rose)' }} />
+                              </button>
+                            </div>
                           </div>
 
                           {/* Price & Unit Box */}
@@ -1468,6 +1527,22 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                             <div style={{ background: 'var(--input-bg)', padding: '0.65rem 0.85rem', borderRadius: '8px', fontSize: '0.78rem', color: 'var(--text-secondary)', border: '1px solid var(--glass-border)' }}>
                               <strong style={{ color: 'var(--accent-cyan)', display: 'block', marginBottom: '2px' }}>Technical Specifications:</strong>
                               {product.specs}
+                            </div>
+                          )}
+
+                          {/* PDF Brochure Badge */}
+                          {product.pdfUrl && (
+                            <div style={{ marginTop: '0.65rem', padding: '0.45rem 0.75rem', background: 'rgba(16, 185, 129, 0.08)', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.25)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <FileText size={15} style={{ color: 'var(--accent-emerald)', flexShrink: 0 }} />
+                              <span style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-primary)' }}>PDF Brochure Attached</span>
+                              <a
+                                href={product.pdfUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--accent-cyan)', textDecoration: 'underline', fontWeight: '600' }}
+                              >
+                                View PDF
+                              </a>
                             </div>
                           )}
                         </div>
@@ -1632,22 +1707,26 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
         </main>
       </div>
 
-      {/* ADD NEW PRODUCT FORM MODAL */}
+      {/* ADD / EDIT PRODUCT FORM MODAL */}
       {isAddProductModalOpen && (
-        <div className="modal-backdrop" onClick={() => setIsAddProductModalOpen(false)}>
+        <div className="modal-backdrop" onClick={() => { setIsAddProductModalOpen(false); setEditingProduct(null); }}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '560px' }}>
             <div className="modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                 <Package className="text-emerald-400" size={24} style={{ color: 'var(--accent-emerald)' }} />
                 <div>
-                  <h3 className="modal-title" style={{ fontSize: '1.2rem' }}>Add New Product</h3>
+                  <h3 className="modal-title" style={{ fontSize: '1.2rem' }}>
+                    {editingProduct ? 'Edit Catalog Product' : 'Add New Product'}
+                  </h3>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                    Enter product details and select a product image
+                    {editingProduct
+                      ? 'Update product specifications, brochure PDF, price and photos'
+                      : 'Enter product details, brochure PDF, and photos to showcase to buyers'}
                   </div>
                 </div>
               </div>
               <button
-                onClick={() => setIsAddProductModalOpen(false)}
+                onClick={() => { setIsAddProductModalOpen(false); setEditingProduct(null); }}
                 style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
               >
                 <X size={22} />
@@ -1753,6 +1832,27 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                 </div>
               </div>
 
+              {/* 4c. Product Catalog / Brochure PDF URL */}
+              <div className="form-group">
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <FileText size={16} style={{ color: 'var(--accent-emerald)' }} />
+                  <span>4c. Product Brochure / Catalogue PDF Link (Sent with Email)</span>
+                </label>
+                <div className="input-container">
+                  <FileText size={16} className="input-icon" />
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Paste PDF link (e.g. Google Drive link, Dropbox, or any .pdf URL)"
+                    value={newProduct.pdfUrl || ''}
+                    onChange={(e) => setNewProduct({ ...newProduct, pdfUrl: e.target.value })}
+                  />
+                </div>
+                <div style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                  📄 When an inquiry is received for this product, this PDF brochure will be automatically downloaded and attached to the auto-reply email!
+                </div>
+              </div>
+
               {/* 5. Technical Specifications */}
               <div className="form-group">
                 <label className="form-label">5. Technical Specifications</label>
@@ -1785,7 +1885,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                 <button
                   type="button"
                   className="btn-secondary"
-                  onClick={() => setIsAddProductModalOpen(false)}
+                  onClick={() => { setIsAddProductModalOpen(false); setEditingProduct(null); }}
                 >
                   Cancel
                 </button>
@@ -1802,7 +1902,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                   ) : (
                     <>
                       <Check size={18} />
-                      <span>Save Product to Catalog</span>
+                      <span>{editingProduct ? 'Update Product in Catalog' : 'Save Product to Catalog'}</span>
                     </>
                   )}
                 </button>
