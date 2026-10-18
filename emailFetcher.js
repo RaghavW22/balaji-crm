@@ -8,7 +8,13 @@ import { simpleParser } from 'mailparser';
 import nodemailer from 'nodemailer';
 import https from 'https';
 import http from 'http';
-import { parseIndiaMartEmail, DEFAULT_TARGET_SENDER } from './src/utils/indiamartParser.js';
+import { 
+  parseIndiaMartEmail, 
+  DEFAULT_TARGET_SENDER, 
+  cleanProductName, 
+  stripForComparison, 
+  normalizeTokens 
+} from './src/utils/indiamartParser.js';
 
 // Global process error barriers to prevent crashes from async socket/network errors on cloud hosts
 process.on('uncaughtException', (err) => {
@@ -357,46 +363,68 @@ async function matchEnquiredProductsToCatalog(enquiredList = [], fallbackProduct
     const seenIds = new Set();
 
     for (const enquiredItem of enquiredList) {
-      // Strip price and unit suffixes from enquired line for accurate token matching
-      // e.g. "Diesel Exhaust Fluid - ₹ 815 / Litre" -> "Diesel Exhaust Fluid"
-      let cleanEnquiryName = enquiredItem
-        .replace(/[-–—]\s*(?:price\s*:\s*)?(?:₹|rs\.?|\$)?\s*[\d,]+(?:\s*\/\s*[\w\s]+)?/i, '')
-        .replace(/(?:price\s*:\s*)?(?:₹|rs\.?|\$)\s*[\d,]+(?:\s*\/\s*[\w\s]+)?/i, '')
-        .trim();
+      // 1. Strip price, currency, quantity, and unit suffixes using cleanProductName
+      // e.g. "Industrial Paint- ₹ 815 / Litre" -> "Industrial Paint"
+      let cleanEnquiryName = cleanProductName(enquiredItem);
 
-      // If cleanEnquiryName was only a price string, fallback to fallbackProductName
+      // If cleanEnquiryName was only a price string or empty, fallback to fallbackProductName
       if (!cleanEnquiryName && fallbackProductName) {
-        cleanEnquiryName = fallbackProductName;
+        cleanEnquiryName = cleanProductName(fallbackProductName);
       }
+      if (!cleanEnquiryName) cleanEnquiryName = enquiredItem;
 
-      const tokens = normalize(cleanEnquiryName || enquiredItem).split(/\s+/).filter(t => t.length > 2);
-      if (tokens.length === 0) continue;
+      // Stripped representation without any spaces, casing, or punctuation
+      // e.g. "Industrial Paint" -> "industrialpaint"
+      const enqCleanNorm = stripForComparison(cleanEnquiryName);
+      const enqTokens = normalizeTokens(cleanEnquiryName).split(/\s+/).filter(t => t.length > 1);
+      if (enqCleanNorm.length === 0 && enqTokens.length === 0) continue;
 
       let best = null, bestScore = 0;
       for (const prod of allProducts) {
-        const prodNameNorm = normalize(prod.name);
-        const prodTokens = prodNameNorm.split(/\s+/).filter(t => t.length > 2);
-        const haystack = `${prodNameNorm} ${normalize(prod.specs)} ${normalize(prod.description)}`;
+        const prodCleanNorm = stripForComparison(prod.name);
+        const prodTokens = normalizeTokens(prod.name).split(/\s+/).filter(t => t.length > 1);
+        const haystack = `${normalizeTokens(prod.name)} ${normalizeTokens(prod.specs)} ${normalizeTokens(prod.description)}`;
+        const haystackCleanNorm = stripForComparison(haystack);
 
         let score = 0;
-        const cleanEnquiryNorm = normalize(cleanEnquiryName);
-        if (prodNameNorm === cleanEnquiryNorm) {
+
+        // 1. Exact match ignoring case, spaces, and punctuation (e.g. "Industrial Paint" vs "IndustrialPaint" vs "industrial paint")
+        if (prodCleanNorm === enqCleanNorm && enqCleanNorm.length > 0) {
           score += 100;
-        } else if (prodNameNorm.includes(cleanEnquiryNorm) || cleanEnquiryNorm.includes(prodNameNorm)) {
-          score += 50;
+        } 
+        // 2. One completely contains the other without space/punctuation issues
+        else if (prodCleanNorm.includes(enqCleanNorm) || enqCleanNorm.includes(prodCleanNorm)) {
+          if (prodCleanNorm.startsWith(enqCleanNorm) || enqCleanNorm.startsWith(prodCleanNorm)) {
+            score += 80;
+          } else {
+            score += 65;
+          }
+        }
+        // 3. Haystack (specs/description) contains the enquired product name
+        else if (haystackCleanNorm.includes(enqCleanNorm)) {
+          score += 40;
         }
 
-        for (const token of tokens) {
-          if (prodNameNorm.includes(token)) {
-            score += 10;
+        // 4. Token-level matching (handles word reordering, camelCase, typos)
+        let matchedTokensCount = 0;
+        for (const token of enqTokens) {
+          if (prodTokens.includes(token)) {
+            score += 15;
+            matchedTokensCount++;
           } else if (prodTokens.some(pt => wordsSimilar(token, pt))) {
-            score += 9;
+            score += 12;
+            matchedTokensCount++;
           } else if (haystack.includes(token)) {
-            score += 2;
+            score += 4;
           }
         }
 
-        if (score > bestScore && score >= 6) {
+        // Bonus if all tokens in the enquiry match
+        if (enqTokens.length > 0 && matchedTokensCount === enqTokens.length) {
+          score += 25;
+        }
+
+        if (score > bestScore && score >= 15) {
           bestScore = score;
           best = prod;
         }

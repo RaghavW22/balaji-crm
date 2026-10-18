@@ -12,6 +12,51 @@ export const DEFAULT_TARGET_SENDER = 'buyershelpdesk@indiamart.com';
 export const INDIAMART_SENDER_EMAIL = 'buyershelpdesk@indiamart.com';
 
 /**
+ * Strips price, currency, quantity, and unit suffixes from product name
+ * E.g. "Industrial Paint- ₹ 815 / Litre" -> "Industrial Paint"
+ *      "Industrial Paint - Rs. 815 / Litre" -> "Industrial Paint"
+ *      "Industrial Paint (₹ 815 / Litre)" -> "Industrial Paint"
+ */
+export function cleanProductName(str) {
+  if (!str) return '';
+  let s = str.trim();
+  // 1. Remove parenthesized price/unit info e.g. (₹ 815 / Litre)
+  s = s.replace(/\s*\([^)]*(?:₹|rs\.?|inr|\$|\d+\s*\/)[^)]*\)/gi, '');
+  // 2. Remove dash/colon/pipe/tilde followed by price or numbers e.g. '- ₹ 815 / Litre', '- 815/Litre', ': Rs 815'
+  s = s.replace(/\s*[-–—|:~]\s*(?:(?:price\s*:?\s*)?(?:₹|rs\.?|inr|\$)?\s*[\d,]+.*)$/i, '');
+  // 3. Remove standalone price e.g. '₹ 815 / Litre'
+  s = s.replace(/\s*(?:price\s*:?\s*)?(?:₹|rs\.?|inr|\$)\s*[\d,]+(?:\s*\/\s*[\w\s]+)?.*$/i, '');
+  // 4. Remove trailing units like '/ Litre'
+  s = s.replace(/\s*\/\s*(?:litre|liter|kg|piece|unit|ton|meter|nos|pack|box|barrel|drum|l|gm)\b.*$/i, '');
+  // 5. Clean trailing punctuation and whitespace
+  s = s.replace(/[-–—|:~,\s]+$/, '').trim();
+  return s;
+}
+
+/**
+ * Strips all spaces, punctuation, symbols, and lowercases for exact matching
+ * irrespective of spaces added, omitted, casing, hyphens, etc.
+ * E.g. "Industrial Paint" === "IndustrialPaint" === "industrial  paint" === "INDUSTRIAL PAINT"
+ */
+export function stripForComparison(str) {
+  return (str || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Normalizes tokens by splitting camelCase and symbols into spaced lowercase words
+ */
+export function normalizeTokens(str) {
+  return (str || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Sample Buyer Inquiry Raw Email Template for testing & simulation
  */
 export const SAMPLE_INDIAMART_EMAIL_TEXT = `From: buyershelpdesk@indiamart.com
@@ -83,17 +128,24 @@ export const parseIndiaMartEmail = (rawEmailContent, senderEmail = '', allowedSe
   }
 
   // 1. Extract Searched Product Name (unwraps multiline and asterisks e.g. "*Diesel\nExhaust Fluid*")
-  let searchedProduct = '';
+  let rawSearchedProduct = '';
   const searchMatch = content.match(/while searching for\s+([\s\S]*?)(?:\.|\n\n|Below)/i);
   if (searchMatch) {
-    searchedProduct = searchMatch[1].replace(/[*_~`\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+    rawSearchedProduct = searchMatch[1].replace(/[*_~`\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
   }
-  if (!searchedProduct) {
+  if (!rawSearchedProduct) {
     const subjectMatch = content.match(/Enquiry for\s+(.*?)\s+from/i);
     if (subjectMatch) {
-      searchedProduct = subjectMatch[1].replace(/[*_~`\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+      rawSearchedProduct = subjectMatch[1].replace(/[*_~`\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
     }
   }
+
+  // Detect price metadata attached to product line (e.g. "Industrial Paint- ₹ 815 / Litre")
+  const priceMatchInProduct = rawSearchedProduct.match(/(?:price\s*:\s*)?(?:₹|rs\.?|inr|\$)\s*[\d,]+(?:\s*\/\s*[\w\s]+)?/i);
+  const priceFoundInName = priceMatchInProduct ? priceMatchInProduct[0].trim() : '';
+
+  // Clean product name to remove any attached price or unit suffixes
+  let searchedProduct = cleanProductName(rawSearchedProduct) || rawSearchedProduct;
 
   // Value Extractor Helper (handles both inline and multiline formats like "Quantity\n:\n250 Litre")
   const extractField = (label) => {
@@ -111,7 +163,7 @@ export const parseIndiaMartEmail = (rawEmailContent, senderEmail = '', allowedSe
   // 2. Extract Requirement details
   const quantity = extractField('Quantity');
   const grade = extractField('Grade') || extractField('Capacity');
-  const orderValue = extractField('Probable Order Value');
+  const orderValue = extractField('Probable Order Value') || priceFoundInName;
   const requirementType = extractField('Probable Requirement Type');
 
   // 3. Extract Buyer details
