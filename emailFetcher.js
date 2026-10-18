@@ -10,6 +10,32 @@ import https from 'https';
 import http from 'http';
 import { parseIndiaMartEmail, DEFAULT_TARGET_SENDER } from './src/utils/indiamartParser.js';
 
+// Global process error barriers to prevent crashes from async socket/network errors on cloud hosts
+process.on('uncaughtException', (err) => {
+  console.error(`[${new Date().toLocaleTimeString('en-US', { hour12: false })}] ⚠️ Process Uncaught Exception intercepted:`, err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error(`[${new Date().toLocaleTimeString('en-US', { hour12: false })}] ⚠️ Process Unhandled Rejection intercepted:`, reason?.message || reason);
+});
+
+// Resilient promise timeout helper to guarantee operations never hang forever
+function withTimeout(promise, ms, timeoutMsg = 'Operation timed out') {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(timeoutMsg));
+    }, ms);
+    promise
+      .then((res) => {
+        clearTimeout(timer);
+        resolve(res);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
 // ----------------------------------------------------------------------
 // ⚙️ CONFIGURATION
 // ----------------------------------------------------------------------
@@ -831,12 +857,20 @@ async function sendAutoReplyEmail(toEmail, lead, originalSubject) {
 // 🔄 Live IMAP Inbox Polling Loop
 // ----------------------------------------------------------------------
 let isPolling = false;
+let pollStartTime = 0;
 
 async function pollInbox() {
   if (isPolling) {
-    return;
+    // Self-healing watchdog: If a poll cycle has been running for > 45 seconds, force-release lock
+    if (Date.now() - pollStartTime > 45000) {
+      console.log(`[${getTs()}] ⚠️ Previous poll cycle stuck (>45s). Force-releasing lock.`);
+      isPolling = false;
+    } else {
+      return;
+    }
   }
   isPolling = true;
+  pollStartTime = Date.now();
 
   if (!SELLER_EMAIL || !SELLER_APP_PASSWORD) {
     console.log(`[${getTs()}] ⏳ [LISTENING] Active in terminal. Looking for emails from: ${c.green}${TARGET_SENDER}${c.reset}`);
@@ -854,15 +888,25 @@ async function pollInbox() {
       port: IMAP_PORT,
       tls: true,
       tlsOptions: { rejectUnauthorized: false },
-      authTimeout: 12000
+      connTimeout: 15000,
+      authTimeout: 15000,
+      socketTimeout: 20000,
+      keepalive: false
     }
   };
 
   let connection = null;
   try {
     console.log(`[${getTs()}] 🔌 Checking Gmail (${c.cyan}${SELLER_EMAIL}${c.reset})...`);
-    connection = await imaps.connect(imapConfig);
-    await connection.openBox('INBOX');
+    connection = await withTimeout(imaps.connect(imapConfig), 25000, 'IMAP connection timed out (25s)');
+
+    if (connection && connection.imap) {
+      connection.imap.on('error', (err) => {
+        console.warn(`[${getTs()}] ⚠️ IMAP socket warning: ${err.message}`);
+      });
+    }
+
+    await withTimeout(connection.openBox('INBOX'), 15000, 'IMAP openBox timed out (15s)');
     console.log(`[${getTs()}] 🟢 ${c.bold}${c.green}AUTHENTICATED & CONNECTED TO GMAIL!${c.reset}`);
     console.log(`[${getTs()}] 🔍 Scanning inbox for emails from: ${c.bold}${c.cyan}${ALLOWED_SENDERS.join(', ')}${c.reset}...`);
 
@@ -874,7 +918,11 @@ async function pollInbox() {
     let allMessages = [];
     for (const sender of ALLOWED_SENDERS) {
       try {
-        const msgs = await connection.search([['HEADER', 'FROM', sender]], fetchOptions);
+        const msgs = await withTimeout(
+          connection.search([['HEADER', 'FROM', sender]], fetchOptions),
+          30000,
+          `Search for ${sender} timed out (30s)`
+        );
         allMessages = allMessages.concat(msgs);
       } catch (err) {
         console.warn(`Search for ${sender} notice:`, err.message);
@@ -947,6 +995,11 @@ async function pollInbox() {
     if (connection) {
       try {
         connection.end();
+      } catch (_) {}
+      try {
+        if (connection.imap && typeof connection.imap.destroy === 'function') {
+          connection.imap.destroy();
+        }
       } catch (_) {}
     }
     isPolling = false;
@@ -1201,21 +1254,47 @@ apiServer.listen(API_PORT, '0.0.0.0', () => {
 // ----------------------------------------------------------------------
 async function startSequentialPolling() {
   while (true) {
-    await pollInbox();
+    try {
+      await pollInbox();
+    } catch (err) {
+      console.log(`[${getTs()}] ⚠️ Polling cycle error caught: ${err.message}`);
+    } finally {
+      isPolling = false;
+    }
     await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_SECONDS * 1000));
   }
 }
 
 startSequentialPolling();
 
-// Interactive terminal trigger:
-// Press Enter anytime to manually check inbox for any new emails
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', async (data) => {
-  const input = data.trim().toLowerCase();
-  if (input === '' || input === 'check' || input === 'sync') {
-    console.log(`\n[${getTs()}] 🔄 Checking for new emails from ${ALLOWED_SENDERS.join(', ')}...`);
-    await pollInbox();
-  }
-});
+// ----------------------------------------------------------------------
+// 💓 Cloud Keep-Alive: Ping public endpoint every 10 minutes to prevent
+// Render free tier web service from sleeping due to inactivity
+// ----------------------------------------------------------------------
+const cloudKeepAliveUrl = process.env.RENDER_EXTERNAL_URL ||
+  (process.env.VITE_BACKEND_API_URL && process.env.VITE_BACKEND_API_URL.startsWith('http') ? process.env.VITE_BACKEND_API_URL : null);
+
+if (cloudKeepAliveUrl) {
+  const pingUrl = `${cloudKeepAliveUrl.replace(/\/+$/, '')}/health`;
+  setInterval(() => {
+    try {
+      const client = pingUrl.startsWith('https') ? https : http;
+      client.get(pingUrl, (res) => {
+        res.resume();
+      }).on('error', () => {});
+    } catch (_) {}
+  }, 10 * 60 * 1000);
+}
+
+// Interactive terminal trigger: only if running in an interactive TTY
+if (process.stdin.isTTY) {
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', async (data) => {
+    const input = data.trim().toLowerCase();
+    if (input === '' || input === 'check' || input === 'sync') {
+      console.log(`\n[${getTs()}] 🔄 Checking for new emails from ${ALLOWED_SENDERS.join(', ')}...`);
+      await pollInbox();
+    }
+  });
+}
 
