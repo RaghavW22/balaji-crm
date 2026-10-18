@@ -383,7 +383,7 @@ async function matchEnquiredProductsToCatalog(enquiredList = [], fallbackProduct
       for (const prod of allProducts) {
         const prodCleanNorm = stripForComparison(prod.name);
         const prodTokens = normalizeTokens(prod.name).split(/\s+/).filter(t => t.length > 1);
-        const haystack = `${normalizeTokens(prod.name)} ${normalizeTokens(prod.specs)} ${normalizeTokens(prod.description)}`;
+        const haystack = `${normalizeTokens(prod.name)} ${normalizeTokens(prod.group || '')} ${normalizeTokens(prod.specs)} ${normalizeTokens(prod.description)}`;
         const haystackCleanNorm = stripForComparison(haystack);
 
         let score = 0;
@@ -630,6 +630,17 @@ async function sendProductReplyEmail(transporter, toEmail, buyerName, prod, cidM
             ${prod.name}
           </td>
         </tr>
+        ${prod.group ? `
+        <tr>
+          <td style="padding:10px 14px;background:#f8fafc;color:#64748b;
+                     border-bottom:1px solid #e2e8f0;vertical-align:top;font-size:13px">
+            Category / Group
+          </td>
+          <td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;
+                     color:#0f172a;font-weight:600;font-size:13px">
+            ${prod.group}
+          </td>
+        </tr>` : ''}
         <tr>
           <td style="padding:10px 14px;background:#f8fafc;color:#64748b;
                      border-bottom:1px solid #e2e8f0;vertical-align:top;font-size:13px">
@@ -744,6 +755,7 @@ async function sendProductReplyEmail(transporter, toEmail, buyerName, prod, cidM
     ``,
     `PRODUCT DETAILS`,
     `  Name  : ${prod.name}`,
+    prod.group       ? `  Group : ${prod.group}` : null,
     `  Price : ${prod.price} ${prod.unit || 'per unit'}`,
     prod.specs       ? `  Specs : ${prod.specs}` : null,
     prod.description ? `  Info  : ${prod.description}` : null,

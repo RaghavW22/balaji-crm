@@ -125,6 +125,10 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
   // Search Filter States
   const [searchQuery, setSearchQuery] = useState('');
   const [productSearchQuery, setProductSearchQuery] = useState('');
+  const [selectedProductGroup, setSelectedProductGroup] = useState('all');
+
+  // Full Image Preview Lightbox Modal
+  const [previewImageModal, setPreviewImageModal] = useState(null);
 
   // Selected Inquiry Modal
   const [activeInquiryModal, setActiveInquiryModal] = useState(null);
@@ -137,8 +141,6 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
   const [products, setProducts] = useState([]);
   const [isProductsLoading, setIsProductsLoading] = useState(true);
 
-
-
   // Sent auto-reply emails log
   const [sentReplies, setSentReplies] = useState([]);
 
@@ -150,6 +152,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
 
   const [newProduct, setNewProduct] = useState({
     name: '',
+    group: '',
     price: '',
     unit: 'per unit',
     imageUrl: '',
@@ -445,6 +448,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
     setEditingProduct(null);
     setNewProduct({
       name: '',
+      group: '',
       price: '',
       unit: 'per unit',
       imageUrl: '',
@@ -462,6 +466,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
     setEditingProduct(prod);
     setNewProduct({
       name: prod.name || '',
+      group: prod.group || prod.category || '',
       price: prod.price || '',
       unit: prod.unit || 'per unit',
       imageUrl: prod.imageUrl || '',
@@ -487,6 +492,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
 
     const productPayload = {
       name: newProduct.name.trim(),
+      group: (newProduct.group || '').trim() || 'General',
       price: newProduct.price.startsWith('₹') || newProduct.price.startsWith('$') ? newProduct.price.trim() : `₹${newProduct.price.trim()}`,
       unit: newProduct.unit.trim() || 'per unit',
       imageUrl: newProduct.imageUrl.trim() || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=600&auto=format&fit=crop',
@@ -534,6 +540,7 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
         setProductFormNotice(null);
         setNewProduct({
           name: '',
+          group: '',
           price: '',
           unit: 'per unit',
           imageUrl: '',
@@ -670,15 +677,20 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
     );
   });
 
-  // Filter seller products
+  // Filter seller products by selected group and search keyword
   const filteredProducts = products.filter((item) => {
+    const itemGroup = (item.group || item.category || 'General').trim();
+    if (selectedProductGroup !== 'all' && itemGroup.toLowerCase() !== selectedProductGroup.toLowerCase()) {
+      return false;
+    }
     if (!productSearchQuery.trim()) return true;
     const q = productSearchQuery.toLowerCase().trim();
     const name = item.name?.toLowerCase() || '';
     const specs = item.specs?.toLowerCase() || '';
     const description = item.description?.toLowerCase() || '';
+    const grp = itemGroup.toLowerCase();
 
-    return name.includes(q) || specs.includes(q) || description.includes(q);
+    return name.includes(q) || specs.includes(q) || description.includes(q) || grp.includes(q);
   });
 
   return (
@@ -1437,6 +1449,60 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                   </div>
                 </div>
 
+                {/* GROUP CATEGORY FILTER TABS BAR */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  overflowX: 'auto',
+                  padding: '0.75rem 0 0.85rem 0',
+                  borderBottom: '1px solid var(--glass-border)',
+                  marginBottom: '1rem'
+                }}>
+                  <button
+                    onClick={() => setSelectedProductGroup('all')}
+                    style={{
+                      padding: '0.4rem 0.95rem',
+                      borderRadius: '20px',
+                      fontSize: '0.8rem',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      transition: 'all 0.2s',
+                      border: selectedProductGroup === 'all' ? '1px solid var(--accent-emerald)' : '1px solid var(--glass-border)',
+                      background: selectedProductGroup === 'all' ? 'rgba(16, 185, 129, 0.18)' : 'var(--glass-bg)',
+                      color: selectedProductGroup === 'all' ? 'var(--accent-emerald)' : 'var(--text-secondary)'
+                    }}
+                  >
+                    All Groups ({products.length})
+                  </button>
+                  {Array.from(new Set(products.map(p => (p.group || p.category || '').trim()).filter(Boolean))).map(grp => {
+                    const count = products.filter(p => (p.group || p.category || '').trim().toLowerCase() === grp.toLowerCase()).length;
+                    const isSelected = selectedProductGroup.toLowerCase() === grp.toLowerCase();
+                    return (
+                      <button
+                        key={grp}
+                        onClick={() => setSelectedProductGroup(grp)}
+                        style={{
+                          padding: '0.4rem 0.95rem',
+                          borderRadius: '20px',
+                          fontSize: '0.8rem',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                          transition: 'all 0.2s',
+                          border: isSelected ? '1px solid var(--accent-cyan)' : '1px solid var(--glass-border)',
+                          background: isSelected ? 'rgba(6, 182, 212, 0.18)' : 'var(--glass-bg)',
+                          color: isSelected ? 'var(--accent-cyan)' : 'var(--text-secondary)'
+                        }}
+                      >
+                        <Tag size={11} style={{ display: 'inline', marginRight: '4px', verticalAlign: '-1px' }} />
+                        {grp} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+
                 {/* PRODUCT CARDS CATALOG GRID */}
                 {isProductsLoading ? (
                   <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
@@ -1447,11 +1513,11 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                   <div style={{ textAlign: 'center', padding: '3.5rem 1rem', background: 'var(--glass-bg)', borderRadius: 'var(--radius-md)', border: '1px dashed var(--glass-border)', marginTop: '1.25rem' }}>
                     <Package size={42} style={{ color: 'var(--text-muted)', marginBottom: '0.85rem' }} />
                     <h3 style={{ fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '0.4rem' }}>
-                      {productSearchQuery.trim() ? "No matching products found" : "No Products Added Yet"}
+                      {productSearchQuery.trim() || selectedProductGroup !== 'all' ? "No matching products found" : "No Products Added Yet"}
                     </h3>
                     <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: '480px', margin: '0 auto 1.25rem auto' }}>
-                      {productSearchQuery.trim()
-                        ? `No products match "${productSearchQuery}". Try another keyword or clear the search.`
+                      {productSearchQuery.trim() || selectedProductGroup !== 'all'
+                        ? `No products match your current filters. Try selecting "All Groups" or clearing the search.`
                         : "Click below to add your first product to your seller catalog."}
                     </p>
                     <button
@@ -1465,97 +1531,172 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                   </div>
                 ) : (
                   <div className="product-card-grid">
-                    {filteredProducts.map((product) => (
-                      <div key={product.id} className="product-card">
+                    {filteredProducts.map((product) => {
+                      const extraList = Array.isArray(product.extraImageUrls)
+                        ? product.extraImageUrls.filter(Boolean)
+                        : (typeof product.extraImageUrls === 'string'
+                            ? product.extraImageUrls.split(/[,\n]+/).map(s => s.trim()).filter(Boolean)
+                            : []);
+                      const allImgs = product.imageUrl ? [product.imageUrl, ...extraList] : extraList;
 
-                        <div>
-                          {/* Product Image Thumbnail Preview */}
-                          {product.imageUrl && (
-                            <div style={{ width: '100%', height: '160px', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: '0.85rem', position: 'relative', border: '1px solid var(--glass-border)' }}>
-                              <img
-                                src={product.imageUrl}
-                                alt={product.name}
-                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                onError={(e) => { e.target.src = 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=600&auto=format&fit=crop'; }}
-                              />
-                            </div>
-                          )}
+                      return (
+                        <div key={product.id} className="product-card">
 
-                          {/* Card Header & Product Name */}
-                          <div className="product-card-header">
-                            <div>
-                              <h3 className="product-title">{product.name}</h3>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                              <button
-                                onClick={() => handleOpenEditProduct(product)}
-                                style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', padding: '0.2rem' }}
-                                title="Edit Product in Catalog"
+                          <div>
+                            {/* Full Uncropped Product Image with Click-to-Expand Lightbox */}
+                            {product.imageUrl && (
+                              <div
+                                onClick={() => setPreviewImageModal({
+                                  url: product.imageUrl,
+                                  title: product.name,
+                                  group: product.group || product.category || 'General',
+                                  allImages: allImgs,
+                                  activeIndex: 0
+                                })}
+                                style={{
+                                  width: '100%',
+                                  height: '210px',
+                                  borderRadius: 'var(--radius-md)',
+                                  overflow: 'hidden',
+                                  marginBottom: '0.85rem',
+                                  position: 'relative',
+                                  border: '1px solid var(--glass-border)',
+                                  background: 'rgba(15, 23, 42, 0.4)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'pointer'
+                                }}
+                                title="Click to view full uncropped image"
                               >
-                                <Edit2 size={16} />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteProduct(product.id)}
-                                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.2rem' }}
-                                title="Delete Product"
-                              >
-                                <Trash2 size={16} style={{ color: 'var(--accent-rose)' }} />
-                              </button>
+                                <img
+                                  src={product.imageUrl}
+                                  alt={product.name}
+                                  style={{
+                                    maxWidth: '100%',
+                                    maxHeight: '100%',
+                                    objectFit: 'contain',
+                                    transition: 'transform 0.25s ease'
+                                  }}
+                                  onError={(e) => { e.target.src = 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=600&auto=format&fit=crop'; }}
+                                />
+                                {/* View Full Image Badge Overlay */}
+                                <div style={{
+                                  position: 'absolute',
+                                  bottom: '8px',
+                                  right: '8px',
+                                  background: 'rgba(0, 0, 0, 0.72)',
+                                  backdropFilter: 'blur(4px)',
+                                  color: '#ffffff',
+                                  padding: '3px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '0.7rem',
+                                  fontWeight: '600',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  pointerEvents: 'none'
+                                }}>
+                                  <Eye size={12} />
+                                  <span>Full Image</span>
+                                  {extraList.length > 0 && <span>(+{extraList.length})</span>}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Card Header & Product Name */}
+                            <div className="product-card-header">
+                              <div>
+                                <div style={{ marginBottom: '4px' }}>
+                                  <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    fontSize: '0.7rem',
+                                    fontWeight: '700',
+                                    padding: '2px 8px',
+                                    borderRadius: '6px',
+                                    background: 'rgba(6, 182, 212, 0.12)',
+                                    color: 'var(--accent-cyan)',
+                                    border: '1px solid rgba(6, 182, 212, 0.25)'
+                                  }}>
+                                    <Tag size={11} />
+                                    {product.group || product.category || 'General'}
+                                  </span>
+                                </div>
+                                <h3 className="product-title">{product.name}</h3>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <button
+                                  onClick={() => handleOpenEditProduct(product)}
+                                  style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', padding: '0.2rem' }}
+                                  title="Edit Product in Catalog"
+                                >
+                                  <Edit2 size={16} />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteProduct(product.id)}
+                                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.2rem' }}
+                                  title="Delete Product"
+                                >
+                                  <Trash2 size={16} style={{ color: 'var(--accent-rose)' }} />
+                                </button>
+                              </div>
                             </div>
+
+                            {/* Price & Unit Box */}
+                            <div className="product-price-box">
+                              <div>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Price</div>
+                                <div className="product-price-val">{product.price}</div>
+                              </div>
+                              <div style={{ textAlign: 'right' }}>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Pricing Unit</div>
+                                <div className="product-stock-val">{product.unit || 'per unit'}</div>
+                              </div>
+                            </div>
+
+                            {/* Description */}
+                            <div className="product-specs-list" style={{ marginBottom: '0.6rem' }}>
+                              <strong style={{ color: 'var(--text-primary)' }}>Description: </strong>
+                              {product.description}
+                            </div>
+
+                            {/* Technical Specifications */}
+                            {product.specs && (
+                              <div style={{ background: 'var(--input-bg)', padding: '0.65rem 0.85rem', borderRadius: '8px', fontSize: '0.78rem', color: 'var(--text-secondary)', border: '1px solid var(--glass-border)' }}>
+                                <strong style={{ color: 'var(--accent-cyan)', display: 'block', marginBottom: '2px' }}>Technical Specifications:</strong>
+                                {product.specs}
+                              </div>
+                            )}
+
+                            {/* PDF Brochure Badge */}
+                            {product.pdfUrl && (
+                              <div style={{ marginTop: '0.65rem', padding: '0.45rem 0.75rem', background: 'rgba(16, 185, 129, 0.08)', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.25)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <FileText size={15} style={{ color: 'var(--accent-emerald)', flexShrink: 0 }} />
+                                <span style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-primary)' }}>PDF Brochure Attached</span>
+                                <a
+                                  href={product.pdfUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--accent-cyan)', textDecoration: 'underline', fontWeight: '600' }}
+                                >
+                                  View PDF
+                                </a>
+                              </div>
+                            )}
                           </div>
 
-                          {/* Price & Unit Box */}
-                          <div className="product-price-box">
-                            <div>
-                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Price</div>
-                              <div className="product-price-val">{product.price}</div>
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Pricing Unit</div>
-                              <div className="product-stock-val">{product.unit || 'per unit'}</div>
-                            </div>
+                          {/* Footer */}
+                          <div className="product-card-footer" style={{ marginTop: '1.25rem' }}>
+                            <span className="score-badge score-high" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem' }}>
+                              <CheckCircle2 size={13} /> Active Catalog Item
+                            </span>
                           </div>
 
-                          {/* Description */}
-                          <div className="product-specs-list" style={{ marginBottom: '0.6rem' }}>
-                            <strong style={{ color: 'var(--text-primary)' }}>Description: </strong>
-                            {product.description}
-                          </div>
-
-                          {/* Technical Specifications */}
-                          {product.specs && (
-                            <div style={{ background: 'var(--input-bg)', padding: '0.65rem 0.85rem', borderRadius: '8px', fontSize: '0.78rem', color: 'var(--text-secondary)', border: '1px solid var(--glass-border)' }}>
-                              <strong style={{ color: 'var(--accent-cyan)', display: 'block', marginBottom: '2px' }}>Technical Specifications:</strong>
-                              {product.specs}
-                            </div>
-                          )}
-
-                          {/* PDF Brochure Badge */}
-                          {product.pdfUrl && (
-                            <div style={{ marginTop: '0.65rem', padding: '0.45rem 0.75rem', background: 'rgba(16, 185, 129, 0.08)', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.25)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <FileText size={15} style={{ color: 'var(--accent-emerald)', flexShrink: 0 }} />
-                              <span style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-primary)' }}>PDF Brochure Attached</span>
-                              <a
-                                href={product.pdfUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--accent-cyan)', textDecoration: 'underline', fontWeight: '600' }}
-                              >
-                                View PDF
-                              </a>
-                            </div>
-                          )}
                         </div>
-
-                        {/* Footer */}
-                        <div className="product-card-footer" style={{ marginTop: '1.25rem' }}>
-                          <span className="score-badge score-high" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem' }}>
-                            <CheckCircle2 size={13} /> Active Catalog Item
-                          </span>
-                        </div>
-
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -1758,11 +1899,53 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                 </div>
               </div>
 
-              {/* 2 & 3. Price & Pricing Unit Row */}
+              {/* 2. Product Group / Category */}
+              <div className="form-group">
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Tag size={16} style={{ color: 'var(--accent-cyan)' }} />
+                    <span>2. Product Group / Category *</span>
+                  </span>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Categorize your products</span>
+                </label>
+                <div className="input-container">
+                  <Tag size={16} className="input-icon" />
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. Industrial Paints, Thinners, Coatings, Solvents, Machinery"
+                    value={newProduct.group || ''}
+                    onChange={(e) => setNewProduct({ ...newProduct, group: e.target.value })}
+                  />
+                </div>
+                {/* Group Quick Presets */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '0.5rem' }}>
+                  {['Industrial Paints', 'Primers & Coats', 'Thinners & Solvents', 'Epoxy Coatings', 'Machinery & Tools', 'Chemicals'].map(preset => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setNewProduct({ ...newProduct, group: preset })}
+                      style={{
+                        fontSize: '0.72rem',
+                        padding: '3px 8px',
+                        borderRadius: '12px',
+                        border: (newProduct.group || '').toLowerCase() === preset.toLowerCase() ? '1px solid var(--accent-cyan)' : '1px solid var(--glass-border)',
+                        background: (newProduct.group || '').toLowerCase() === preset.toLowerCase() ? 'rgba(6, 182, 212, 0.18)' : 'var(--input-bg)',
+                        color: (newProduct.group || '').toLowerCase() === preset.toLowerCase() ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      + {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 3 & 4. Price & Pricing Unit Row */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                {/* 2. Price */}
+                {/* 3. Price */}
                 <div className="form-group">
-                  <label className="form-label">2. Price (INR / Currency) *</label>
+                  <label className="form-label">3. Price (INR / Currency) *</label>
                   <div className="input-container">
                     <DollarSign size={16} className="input-icon" />
                     <input
@@ -1776,9 +1959,9 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                   </div>
                 </div>
 
-                {/* 3. Pricing Unit */}
+                {/* 4. Pricing Unit */}
                 <div className="form-group">
-                  <label className="form-label">3. Pricing Unit</label>
+                  <label className="form-label">4. Pricing Unit</label>
                   <div className="input-container">
                     <Tag size={16} className="input-icon" />
                     <input
@@ -2147,6 +2330,135 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
       )}
 
 
+
+      {/* FULL PRODUCT IMAGE LIGHTBOX MODAL */}
+      {previewImageModal && (
+        <div
+          className="modal-backdrop"
+          style={{ zIndex: 1200, background: 'rgba(0, 0, 0, 0.88)', backdropFilter: 'blur(8px)' }}
+          onClick={() => setPreviewImageModal(null)}
+        >
+          <div
+            style={{
+              maxWidth: '92vw',
+              maxHeight: '92vh',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              position: 'relative',
+              borderRadius: '12px',
+              overflow: 'hidden',
+              boxShadow: '0 20px 50px rgba(0,0,0,0.6)',
+              border: '1px solid rgba(255,255,255,0.1)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Top Bar */}
+            <div style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '0.75rem 1.1rem',
+              background: 'rgba(15, 23, 42, 0.95)',
+              color: '#ffffff'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Image size={18} style={{ color: 'var(--accent-cyan)' }} />
+                <span style={{ fontWeight: '700', fontSize: '0.98rem' }}>{previewImageModal.title}</span>
+                {previewImageModal.group && (
+                  <span style={{
+                    fontSize: '0.7rem',
+                    padding: '2px 8px',
+                    borderRadius: '10px',
+                    background: 'rgba(6, 182, 212, 0.2)',
+                    color: 'var(--accent-cyan)',
+                    border: '1px solid rgba(6, 182, 212, 0.3)'
+                  }}>
+                    {previewImageModal.group}
+                  </span>
+                )}
+                {previewImageModal.allImages?.length > 1 && (
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    ({previewImageModal.activeIndex + 1} of {previewImageModal.allImages.length})
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <a
+                  href={previewImageModal.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: 'var(--accent-cyan)', fontSize: '0.8rem', textDecoration: 'none', fontWeight: '600' }}
+                >
+                  Open Original &nearr;
+                </a>
+                <button
+                  onClick={() => setPreviewImageModal(null)}
+                  style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}
+                  title="Close Full Image View"
+                >
+                  <X size={22} />
+                </button>
+              </div>
+            </div>
+
+            {/* Main Full Image View Area */}
+            <div style={{
+              background: '#020617',
+              padding: '1.25rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '100%',
+              maxHeight: '74vh',
+              overflow: 'hidden'
+            }}>
+              <img
+                src={previewImageModal.url}
+                alt={previewImageModal.title}
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: '70vh',
+                  objectFit: 'contain',
+                  borderRadius: '6px'
+                }}
+              />
+            </div>
+
+            {/* Thumbnail Switcher (if product has multiple images) */}
+            {previewImageModal.allImages?.length > 1 && (
+              <div style={{
+                width: '100%',
+                display: 'flex',
+                gap: '8px',
+                padding: '0.65rem 1rem',
+                background: 'rgba(15, 23, 42, 0.95)',
+                overflowX: 'auto',
+                justifyContent: 'center'
+              }}>
+                {previewImageModal.allImages.map((img, idx) => (
+                  <img
+                    key={idx}
+                    src={img}
+                    alt=""
+                    onClick={() => setPreviewImageModal({ ...previewImageModal, url: img, activeIndex: idx })}
+                    style={{
+                      width: '50px',
+                      height: '50px',
+                      objectFit: 'cover',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      border: previewImageModal.activeIndex === idx ? '2px solid var(--accent-cyan)' : '1px solid rgba(255,255,255,0.2)',
+                      opacity: previewImageModal.activeIndex === idx ? 1 : 0.6
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* API Settings Modal */}
       <ApiSettingsModal
