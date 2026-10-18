@@ -710,6 +710,19 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
               <Sparkles size={11} style={{ display: 'inline', marginRight: '3px' }} />
               Seller Portal
             </span>
+            <span style={{
+              fontSize: '0.68rem',
+              fontWeight: '700',
+              padding: '2px 8px',
+              borderRadius: '12px',
+              background: 'rgba(245, 158, 11, 0.15)',
+              color: 'var(--accent-amber)',
+              border: '1px solid rgba(245, 158, 11, 0.35)',
+              letterSpacing: '0.3px',
+              textTransform: 'uppercase'
+            }}>
+              v1.0.0 Beta
+            </span>
           </div>
         </div>
 
@@ -896,8 +909,19 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
             <div style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--accent-cyan)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {user.email}
             </div>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-              Seller Account
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Seller Account</span>
+              <span style={{
+                fontSize: '0.68rem',
+                fontWeight: '700',
+                color: 'var(--accent-amber)',
+                background: 'rgba(245, 158, 11, 0.15)',
+                padding: '1px 6px',
+                borderRadius: '4px',
+                border: '1px solid rgba(245, 158, 11, 0.3)'
+              }}>
+                v1.0.0 Beta
+              </span>
             </div>
           </div>
         </aside>
@@ -2473,6 +2497,30 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
         user={user}
         onDataCleared={() => setInquiries([])}
       />
+
+      {/* PERSISTENT FLOATING CORNER BETA VERSION BADGE */}
+      <div style={{
+        position: 'fixed',
+        bottom: '12px',
+        right: '16px',
+        zIndex: 900,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '4px 10px',
+        borderRadius: '20px',
+        background: 'rgba(15, 23, 42, 0.85)',
+        backdropFilter: 'blur(8px)',
+        border: '1px solid rgba(245, 158, 11, 0.35)',
+        color: 'var(--text-secondary)',
+        fontSize: '0.72rem',
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+        pointerEvents: 'none'
+      }}>
+        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#f59e0b', boxShadow: '0 0 6px #f59e0b' }}></span>
+        <span style={{ color: 'var(--text-primary)', fontWeight: '600' }}>v1.0.0</span>
+        <span style={{ color: 'var(--accent-amber)', fontWeight: '700' }}>(Beta)</span>
+      </div>
     </div>
   );
 };

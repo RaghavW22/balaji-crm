@@ -87,7 +87,22 @@ const LoginForm = ({ onLoginSuccess }) => {
           {/* LOGIN VIEW */}
           {viewMode === 'login' && (
             <>
-              <div className="auth-header">
+              <div className="auth-header" style={{ position: 'relative' }}>
+                <div style={{
+                  display: 'inline-block',
+                  marginBottom: '6px',
+                  fontSize: '0.68rem',
+                  fontWeight: '700',
+                  color: 'var(--accent-amber)',
+                  background: 'rgba(245, 158, 11, 0.15)',
+                  border: '1px solid rgba(245, 158, 11, 0.35)',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}>
+                  v1.0.0 Beta Release
+                </div>
                 <h2 className="auth-title">Welcome to Balaji CRM</h2>
                 <p className="auth-subtitle">Customer Relationship Management</p>
               </div>
