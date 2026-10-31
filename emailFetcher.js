@@ -1062,7 +1062,7 @@ async function pollInbox() {
 
     await withTimeout(connection.openBox('INBOX'), 15000, 'IMAP openBox timed out (15s)');
     console.log(`[${getTs()}] 🟢 ${c.bold}${c.green}AUTHENTICATED & CONNECTED TO GMAIL!${c.reset}`);
-    console.log(`[${getTs()}] 🔍 Scanning inbox for emails from: ${c.bold}${c.cyan}${ALLOWED_SENDERS.join(', ')}${c.reset}...`);
+    console.log(`[${getTs()}] 🔍 Scanning inbox for unread emails from: ${c.bold}${c.cyan}${ALLOWED_SENDERS.join(', ')}${c.reset}...`);
 
     const fetchOptions = {
       bodies: ['HEADER', 'TEXT', ''],
@@ -1073,7 +1073,7 @@ async function pollInbox() {
     for (const sender of ALLOWED_SENDERS) {
       try {
         const msgs = await withTimeout(
-          connection.search([['HEADER', 'FROM', sender]], fetchOptions),
+          connection.search(['UNSEEN', ['HEADER', 'FROM', sender]], fetchOptions),
           30000,
           `Search for ${sender} timed out (30s)`
         );
@@ -1102,18 +1102,26 @@ async function pollInbox() {
     }
 
     if (messages.length === 0) {
-      console.log(`[${getTs()}] 📭 0 emails found from ${c.green}${ALLOWED_SENDERS.join(', ')}${c.reset}. (Listening live every ${POLL_INTERVAL_SECONDS}s)`);
+      console.log(`[${getTs()}] 📭 0 unread emails found from ${c.green}${ALLOWED_SENDERS.join(', ')}${c.reset}. (Listening live every ${POLL_INTERVAL_SECONDS}s)`);
     } else {
-      // Find messages that haven't been processed yet
-      const newMessages = messages.filter(item => {
+      // Find unread messages that haven't been processed yet
+      const unprocessedMessages = messages.filter(item => {
         const uid = item.attributes?.uid;
         return !processedUids.has(uid);
       });
 
+      // Sort by UID / date ascending so the newest emails are at the end, and slice the last 5
+      unprocessedMessages.sort((a, b) => {
+        const uidA = a.attributes?.uid || 0;
+        const uidB = b.attributes?.uid || 0;
+        return uidA - uidB;
+      });
+      const newMessages = unprocessedMessages.slice(-5);
+
       if (newMessages.length === 0) {
-        console.log(`[${getTs()}] 📭 All ${messages.length} email(s) from ${c.green}${TARGET_SENDER}${c.reset} are already processed and up to date.`);
+        console.log(`[${getTs()}] 📭 All ${messages.length} unread email(s) from ${c.green}${TARGET_SENDER}${c.reset} are already processed and up to date.`);
       } else {
-        console.log(`[${getTs()}] ${c.magenta}${c.bold}📬 Found ${newMessages.length} new email(s) from ${TARGET_SENDER}! Processing into CRM:${c.reset}`);
+        console.log(`[${getTs()}] ${c.magenta}${c.bold}📬 Found ${newMessages.length} unread email(s) (processing last 5) from ${TARGET_SENDER}! Processing into CRM:${c.reset}`);
 
         for (let i = 0; i < newMessages.length; i++) {
           const item = newMessages[i];
