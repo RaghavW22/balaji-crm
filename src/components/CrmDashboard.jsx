@@ -1048,8 +1048,8 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
                     <Mail size={24} />
                   </div>
                   <div>
-                    <div className="kpi-val" style={{ fontSize: '0.88rem', color: 'var(--accent-emerald)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '185px' }} title="raghavw2006@gmail.com">
-                      raghavw2006@gmail.com
+                    <div className="kpi-val" style={{ fontSize: '0.88rem', color: 'var(--accent-emerald)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '185px' }} title="sales.nag2020@gmail.com">
+                      sales.nag2020@gmail.com
                     </div>
                     <div className="kpi-label" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--accent-emerald)', display: 'inline-block' }}></span>
