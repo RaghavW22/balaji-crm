@@ -15,6 +15,7 @@ import {
   getDoc, 
   setDoc,
   collection,
+  collectionGroup,
   getDocs,
   addDoc,
   updateDoc,
@@ -323,43 +324,80 @@ export const updateProductInFirestore = async (userId, productId, productData) =
 
 /**
  * Fetch all Seller Products from Firestore Database
- * Automatically imports and preserves any existing user-created products into the shared catalog!
+ * Automatically aggregates products from the shared workspace AND queries all historical
+ * user collections across the entire database via collectionGroup("products").
+ * Any old product ever added by ANY account is automatically migrated into the shared catalog!
  */
 export const fetchProductsFromFirestore = async (userId) => {
   try {
     const wsId = resolveWorkspaceId(userId);
-    const productsRef = collection(db, "users", wsId, "products");
-    const q = query(productsRef, orderBy("createdAt", "desc"));
-    const querySnapshot = await getDocs(q);
     const products = [];
     const seenIds = new Set();
     const seenNames = new Set();
 
-    querySnapshot.forEach((docSnap) => {
-      const data = docSnap.data();
-      products.push({ id: docSnap.id, ...data });
-      seenIds.add(docSnap.id);
-      if (data.name) seenNames.add(data.name.trim().toLowerCase());
-    });
+    // 1. Fetch current shared products
+    try {
+      const productsRef = collection(db, "users", wsId, "products");
+      const q = query(productsRef, orderBy("createdAt", "desc"));
+      const querySnapshot = await getDocs(q);
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        products.push({ id: docSnap.id, ...data });
+        seenIds.add(docSnap.id);
+        if (data.name) seenNames.add(data.name.trim().toLowerCase());
+      });
+    } catch (sharedErr) {
+      console.warn("Shared products fetch error:", sharedErr.message);
+    }
 
-    // If userId provided and different from shared workspace, migrate any old products
-    if (userId && userId !== wsId) {
-      try {
-        const userProductsRef = collection(db, "users", userId, "products");
-        const userQ = query(userProductsRef, orderBy("createdAt", "desc"));
-        const userSnap = await getDocs(userQ);
-        userSnap.forEach((docSnap) => {
-          const data = docSnap.data();
-          const normName = (data.name || '').trim().toLowerCase();
-          if (!seenIds.has(docSnap.id) && !seenNames.has(normName)) {
-            products.push({ id: docSnap.id, ...data });
-            seenIds.add(docSnap.id);
-            if (normName) seenNames.add(normName);
-            // Persist into shared workspace so all logins have it immediately
-            setDoc(doc(db, "users", wsId, "products", docSnap.id), data).catch(() => {});
-          }
-        });
-      } catch (_) {}
+    // 2. Scan ALL historical products across ANY account in Firestore using collectionGroup
+    try {
+      const allProductsGroupRef = collectionGroup(db, "products");
+      const groupSnap = await getDocs(allProductsGroupRef);
+      const migratePromises = [];
+
+      groupSnap.forEach((docSnap) => {
+        const data = docSnap.data();
+        const normName = (data.name || '').trim().toLowerCase();
+        
+        // If not already in our product list, add it!
+        if (!seenIds.has(docSnap.id) && !seenNames.has(normName)) {
+          products.push({ id: docSnap.id, ...data });
+          seenIds.add(docSnap.id);
+          if (normName) seenNames.add(normName);
+
+          // Copy into shared company workspace so it permanently lives in the shared catalog
+          migratePromises.push(
+            setDoc(doc(db, "users", wsId, "products", docSnap.id), data, { merge: true })
+          );
+        }
+      });
+
+      if (migratePromises.length > 0) {
+        Promise.all(migratePromises).catch(() => {});
+        console.log(`📦 Unified ${migratePromises.length} historical product(s) from previous accounts into the shared catalog.`);
+      }
+    } catch (groupErr) {
+      console.warn("collectionGroup products scan warning (rules or index):", groupErr.message);
+      
+      // Fallback: If collectionGroup needs an index or fails, check current user's individual path
+      if (userId && userId !== wsId) {
+        try {
+          const userProductsRef = collection(db, "users", userId, "products");
+          const userQ = query(userProductsRef, orderBy("createdAt", "desc"));
+          const userSnap = await getDocs(userQ);
+          userSnap.forEach((docSnap) => {
+            const data = docSnap.data();
+            const normName = (data.name || '').trim().toLowerCase();
+            if (!seenIds.has(docSnap.id) && !seenNames.has(normName)) {
+              products.push({ id: docSnap.id, ...data });
+              seenIds.add(docSnap.id);
+              if (normName) seenNames.add(normName);
+              setDoc(doc(db, "users", wsId, "products", docSnap.id), data).catch(() => {});
+            }
+          });
+        } catch (_) {}
+      }
     }
 
     return { success: true, products };
