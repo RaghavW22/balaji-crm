@@ -99,13 +99,23 @@ export const subscribeAuthState = (callback) => {
   });
 };
 
+// Shared Organization / Company Workspace ID so all authenticated logins see the exact same
+// catalog, leads, settings, and sent replies across the entire company.
+export const SHARED_WORKSPACE_ID = "balaji_company_workspace";
+
+// Helper to resolve workspace ID: prioritizes shared company workspace
+const resolveWorkspaceId = (userId) => {
+  return SHARED_WORKSPACE_ID;
+};
+
 /**
  * Save API Integration Keys to Firebase Firestore Database
- * Path: users/{userId}/settings/api_keys
+ * Path: users/{workspaceId}/settings/api_keys
  */
 export const saveApiSettingsToFirestore = async (userId, apiSettings) => {
   try {
-    const settingsRef = doc(db, "users", userId, "settings", "api_keys");
+    const wsId = resolveWorkspaceId(userId);
+    const settingsRef = doc(db, "users", wsId, "settings", "api_keys");
     await setDoc(settingsRef, {
       ...apiSettings,
       updatedAt: new Date().toISOString()
@@ -122,10 +132,22 @@ export const saveApiSettingsToFirestore = async (userId, apiSettings) => {
  */
 export const fetchApiSettingsFromFirestore = async (userId) => {
   try {
-    const settingsRef = doc(db, "users", userId, "settings", "api_keys");
+    const wsId = resolveWorkspaceId(userId);
+    const settingsRef = doc(db, "users", wsId, "settings", "api_keys");
     const docSnap = await getDoc(settingsRef);
     if (docSnap.exists()) {
       return { success: true, data: docSnap.data() };
+    }
+    // If not yet in shared workspace and individual userId provided, check legacy doc
+    if (userId && userId !== wsId) {
+      const userRef = doc(db, "users", userId, "settings", "api_keys");
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        const legacyData = userSnap.data();
+        // Migrate to shared workspace in background
+        setDoc(settingsRef, legacyData, { merge: true }).catch(() => {});
+        return { success: true, data: legacyData };
+      }
     }
     return { success: true, data: null };
   } catch (error) {
@@ -139,7 +161,8 @@ export const fetchApiSettingsFromFirestore = async (userId) => {
  */
 export const saveLeadToFirestore = async (userId, leadData) => {
   try {
-    const leadsRef = collection(db, "users", userId, "leads");
+    const wsId = resolveWorkspaceId(userId);
+    const leadsRef = collection(db, "users", wsId, "leads");
     const docRef = await addDoc(leadsRef, {
       ...leadData,
       createdAt: new Date().toISOString()
@@ -157,7 +180,8 @@ export const saveLeadToFirestore = async (userId, leadData) => {
  */
 export const fetchLeadsFromFirestore = async (userId) => {
   try {
-    const leadsRef = collection(db, "users", userId, "leads");
+    const wsId = resolveWorkspaceId(userId);
+    const leadsRef = collection(db, "users", wsId, "leads");
     const q = query(leadsRef, orderBy("createdAt", "desc"));
     const querySnapshot = await getDocs(q);
     const leads = [];
@@ -173,7 +197,7 @@ export const fetchLeadsFromFirestore = async (userId) => {
       // Check if data is older than 7 days
       if (now - itemTimestamp > SEVEN_DAYS_MS) {
         // Automatically delete from Firestore Database
-        deletePromises.push(deleteDoc(doc(db, "users", userId, "leads", docSnap.id)));
+        deletePromises.push(deleteDoc(doc(db, "users", wsId, "leads", docSnap.id)));
       } else {
         leads.push({ id: docSnap.id, ...data });
       }
@@ -182,6 +206,21 @@ export const fetchLeadsFromFirestore = async (userId) => {
     if (deletePromises.length > 0) {
       await Promise.all(deletePromises);
       console.log(`🧹 Auto-purged ${deletePromises.length} request(s) older than 7 days from database.`);
+    }
+
+    // Migration check: If shared workspace has no leads yet and user has legacy leads, load and migrate them
+    if (leads.length === 0 && userId && userId !== wsId) {
+      try {
+        const userLeadsRef = collection(db, "users", userId, "leads");
+        const userQ = query(userLeadsRef, orderBy("createdAt", "desc"));
+        const userSnap = await getDocs(userQ);
+        userSnap.forEach((docSnap) => {
+          const lData = docSnap.data();
+          leads.push({ id: docSnap.id, ...lData });
+          // Copy to shared collection
+          setDoc(doc(db, "users", wsId, "leads", docSnap.id), lData).catch(() => {});
+        });
+      } catch (_) {}
     }
 
     return { success: true, leads };
@@ -196,20 +235,21 @@ export const fetchLeadsFromFirestore = async (userId) => {
  */
 export const deleteLeadFromFirestore = async (userId, leadId, queryId = null) => {
   try {
+    const wsId = resolveWorkspaceId(userId);
     if (leadId) {
       try {
-        const leadRef = doc(db, "users", userId, "leads", leadId);
+        const leadRef = doc(db, "users", wsId, "leads", leadId);
         await deleteDoc(leadRef);
       } catch (_) {}
     }
     if (queryId && queryId !== leadId) {
       try {
-        const leadsRef = collection(db, "users", userId, "leads");
+        const leadsRef = collection(db, "users", wsId, "leads");
         const q = query(leadsRef, where("query_id", "==", queryId));
         const snapshot = await getDocs(q);
         const deletes = [];
         snapshot.forEach(docSnap => {
-          deletes.push(deleteDoc(doc(db, "users", userId, "leads", docSnap.id)));
+          deletes.push(deleteDoc(doc(db, "users", wsId, "leads", docSnap.id)));
         });
         if (deletes.length > 0) {
           await Promise.all(deletes);
@@ -228,11 +268,12 @@ export const deleteLeadFromFirestore = async (userId, leadId, queryId = null) =>
  */
 export const clearAllLeadsFromFirestore = async (userId) => {
   try {
-    const leadsRef = collection(db, "users", userId, "leads");
+    const wsId = resolveWorkspaceId(userId);
+    const leadsRef = collection(db, "users", wsId, "leads");
     const querySnapshot = await getDocs(leadsRef);
     const deletePromises = [];
     querySnapshot.forEach((docSnap) => {
-      deletePromises.push(deleteDoc(doc(db, "users", userId, "leads", docSnap.id)));
+      deletePromises.push(deleteDoc(doc(db, "users", wsId, "leads", docSnap.id)));
     });
     await Promise.all(deletePromises);
     return { success: true };
@@ -244,11 +285,12 @@ export const clearAllLeadsFromFirestore = async (userId) => {
 
 /**
  * Add a Seller Product to Firestore Database
- * Path: users/{userId}/products
+ * Path: users/{workspaceId}/products
  */
 export const saveProductToFirestore = async (userId, productData) => {
   try {
-    const productsRef = collection(db, "users", userId, "products");
+    const wsId = resolveWorkspaceId(userId);
+    const productsRef = collection(db, "users", wsId, "products");
     const docRef = await addDoc(productsRef, {
       ...productData,
       createdAt: new Date().toISOString()
@@ -262,11 +304,12 @@ export const saveProductToFirestore = async (userId, productData) => {
 
 /**
  * Update an existing Seller Product in Firestore Database
- * Path: users/{userId}/products/{productId}
+ * Path: users/{workspaceId}/products/{productId}
  */
 export const updateProductInFirestore = async (userId, productId, productData) => {
   try {
-    const productRef = doc(db, "users", userId, "products", productId);
+    const wsId = resolveWorkspaceId(userId);
+    const productRef = doc(db, "users", wsId, "products", productId);
     await updateDoc(productRef, {
       ...productData,
       updatedAt: new Date().toISOString()
@@ -280,16 +323,45 @@ export const updateProductInFirestore = async (userId, productId, productData) =
 
 /**
  * Fetch all Seller Products from Firestore Database
+ * Automatically imports and preserves any existing user-created products into the shared catalog!
  */
 export const fetchProductsFromFirestore = async (userId) => {
   try {
-    const productsRef = collection(db, "users", userId, "products");
+    const wsId = resolveWorkspaceId(userId);
+    const productsRef = collection(db, "users", wsId, "products");
     const q = query(productsRef, orderBy("createdAt", "desc"));
     const querySnapshot = await getDocs(q);
     const products = [];
+    const seenIds = new Set();
+    const seenNames = new Set();
+
     querySnapshot.forEach((docSnap) => {
-      products.push({ id: docSnap.id, ...docSnap.data() });
+      const data = docSnap.data();
+      products.push({ id: docSnap.id, ...data });
+      seenIds.add(docSnap.id);
+      if (data.name) seenNames.add(data.name.trim().toLowerCase());
     });
+
+    // If userId provided and different from shared workspace, migrate any old products
+    if (userId && userId !== wsId) {
+      try {
+        const userProductsRef = collection(db, "users", userId, "products");
+        const userQ = query(userProductsRef, orderBy("createdAt", "desc"));
+        const userSnap = await getDocs(userQ);
+        userSnap.forEach((docSnap) => {
+          const data = docSnap.data();
+          const normName = (data.name || '').trim().toLowerCase();
+          if (!seenIds.has(docSnap.id) && !seenNames.has(normName)) {
+            products.push({ id: docSnap.id, ...data });
+            seenIds.add(docSnap.id);
+            if (normName) seenNames.add(normName);
+            // Persist into shared workspace so all logins have it immediately
+            setDoc(doc(db, "users", wsId, "products", docSnap.id), data).catch(() => {});
+          }
+        });
+      } catch (_) {}
+    }
+
     return { success: true, products };
   } catch (error) {
     console.warn("Firestore products fetch warning:", error.message);
@@ -302,7 +374,8 @@ export const fetchProductsFromFirestore = async (userId) => {
  */
 export const deleteProductFromFirestore = async (userId, productId) => {
   try {
-    const productRef = doc(db, "users", userId, "products", productId);
+    const wsId = resolveWorkspaceId(userId);
+    const productRef = doc(db, "users", wsId, "products", productId);
     await deleteDoc(productRef);
     return { success: true };
   } catch (error) {
@@ -316,11 +389,12 @@ export const deleteProductFromFirestore = async (userId, productId) => {
  */
 export const clearAllSentRepliesFromFirestore = async (userId) => {
   try {
-    const repliesRef = collection(db, "users", userId, "sent_replies");
+    const wsId = resolveWorkspaceId(userId);
+    const repliesRef = collection(db, "users", wsId, "sent_replies");
     const querySnapshot = await getDocs(repliesRef);
     const deletePromises = [];
     querySnapshot.forEach((docSnap) => {
-      deletePromises.push(deleteDoc(doc(db, "users", userId, "sent_replies", docSnap.id)));
+      deletePromises.push(deleteDoc(doc(db, "users", wsId, "sent_replies", docSnap.id)));
     });
     await Promise.all(deletePromises);
     return { success: true };
@@ -335,7 +409,8 @@ export const clearAllSentRepliesFromFirestore = async (userId) => {
  */
 export const deleteSentReplyFromFirestore = async (userId, replyId) => {
   try {
-    const replyRef = doc(db, "users", userId, "sent_replies", replyId);
+    const wsId = resolveWorkspaceId(userId);
+    const replyRef = doc(db, "users", wsId, "sent_replies", replyId);
     await deleteDoc(replyRef);
     return { success: true };
   } catch (error) {
