@@ -134,9 +134,21 @@ export const parseIndiaMartEmail = (rawEmailContent, senderEmail = '', allowedSe
     rawSearchedProduct = searchMatch[1].replace(/[*_~`\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
   }
   if (!rawSearchedProduct) {
-    const subjectMatch = content.match(/Enquiry for\s+(.*?)\s+from/i);
+    const subjectMatch = content.match(/Enquiry for\s+(.*?)\s+(?:from|by)/i) || content.match(/Enquiry for\s+(.*?)(?:\.|\n|$)/i);
     if (subjectMatch) {
       rawSearchedProduct = subjectMatch[1].replace(/[*_~`\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+  }
+  if (!rawSearchedProduct) {
+    const inqForMatch = content.match(/(?:inquiry|enquiry)\s+(?:from\s+[^\n.,]+?\s+)?for\s+(.*?)(?:\.|\n|,|Quantity|$)/i);
+    if (inqForMatch) {
+      rawSearchedProduct = inqForMatch[1].replace(/[*_~`\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+  }
+  if (!rawSearchedProduct) {
+    const reqProductMatch = content.match(/Product Name\s*:\s*([^\n]+)/i) || content.match(/Product\s*:\s*([^\n]+)/i);
+    if (reqProductMatch) {
+      rawSearchedProduct = reqProductMatch[1].replace(/[*_~`\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
     }
   }
 
@@ -289,13 +301,13 @@ export const parseIndiaMartEmail = (rawEmailContent, senderEmail = '', allowedSe
         productsOfInterest: productsOfInterest
       },
       product: {
-        name: searchedProduct || 'Mobil Unirex N3 Grease',
+        name: searchedProduct || (enquiredProductsList[0] ? cleanProductName(enquiredProductsList[0]) : 'General Industrial Product'),
         category: 'IndiaMART Product Inquiry',
-        quantity: quantity || '10 Kg',
+        quantity: quantity || 'As required',
         grade: grade,
         orderValue: orderValue,
         requirementType: requirementType,
-        requirement_details: requirementSummaryParts.join(' • ') || 'Quantity: 10 Kg • Grade: N3 • Probable Value: Rs. 5,800 - 12,000'
+        requirement_details: requirementSummaryParts.join(' • ') || (quantity ? `Quantity: ${quantity}` : 'Details as specified in email enquiry')
       },
       enquiredProductsList: enquiredProductsList,
       status: { is_new: true, is_verified: true }
