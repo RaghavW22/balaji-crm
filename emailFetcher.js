@@ -380,6 +380,27 @@ async function matchEnquiredProductsToCatalog(enquiredList = [], fallbackProduct
       if (enqCleanNorm.length === 0 && enqTokens.length === 0) continue;
 
       let best = null, bestScore = 0;
+      // 0. Acronym and alias expansions (e.g. DEF <-> Diesel Exhaust Fluid)
+      const ACRONYM_PAIRS = [
+        ['def', 'diesel exhaust fluid'],
+        ['def', 'diesel exhaust fluids'],
+        ['def', 'disel exhaust fluid'],
+        ['adblue', 'diesel exhaust fluid'],
+        ['adblue', 'def']
+      ];
+      for (const [shortForm, longForm] of ACRONYM_PAIRS) {
+        if (enqCleanNorm === shortForm || enqCleanNorm.includes(shortForm)) {
+          if (prodCleanNorm.includes(stripForComparison(longForm))) {
+            score += 90;
+          }
+        }
+        if (enqCleanNorm.includes(stripForComparison(longForm))) {
+          if (prodCleanNorm.includes(shortForm) || haystackCleanNorm.includes(shortForm)) {
+            score += 90;
+          }
+        }
+      }
+
       for (const prod of allProducts) {
         const prodCleanNorm = stripForComparison(prod.name);
         const prodTokens = normalizeTokens(prod.name).split(/\s+/).filter(t => t.length > 1);
@@ -387,6 +408,16 @@ async function matchEnquiredProductsToCatalog(enquiredList = [], fallbackProduct
         const haystackCleanNorm = stripForComparison(haystack);
 
         let score = 0;
+
+        // Check acronyms / aliases per product
+        for (const [shortForm, longForm] of ACRONYM_PAIRS) {
+          const longNorm = stripForComparison(longForm);
+          if ((enqCleanNorm === shortForm || enqCleanNorm.includes(shortForm)) && prodCleanNorm.includes(longNorm)) {
+            score += 90;
+          } else if (enqCleanNorm.includes(longNorm) && (prodCleanNorm.includes(shortForm) || prodTokens.includes(shortForm) || haystackCleanNorm.includes(shortForm))) {
+            score += 90;
+          }
+        }
 
         // 1. Exact match ignoring case, spaces, and punctuation (e.g. "Industrial Paint" vs "IndustrialPaint" vs "industrial paint")
         if (prodCleanNorm === enqCleanNorm && enqCleanNorm.length > 0) {
@@ -1062,7 +1093,12 @@ async function pollInbox() {
 
     await withTimeout(connection.openBox('INBOX'), 15000, 'IMAP openBox timed out (15s)');
     console.log(`[${getTs()}] 🟢 ${c.bold}${c.green}AUTHENTICATED & CONNECTED TO GMAIL!${c.reset}`);
-    console.log(`[${getTs()}] 🔍 Scanning inbox for unread emails from: ${c.bold}${c.cyan}${ALLOWED_SENDERS.join(', ')}${c.reset}...`);
+    // Calculate 1 week ago date for IMAP SINCE filter
+    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const sinceDateStr = `${oneWeekAgo.getDate()}-${months[oneWeekAgo.getMonth()]}-${oneWeekAgo.getFullYear()}`;
+
+    console.log(`[${getTs()}] 🔍 Scanning inbox for emails in the last 1 week (since ${sinceDateStr}) from: ${c.bold}${c.cyan}${ALLOWED_SENDERS.join(', ')}${c.reset}...`);
 
     const fetchOptions = {
       bodies: ['HEADER', 'TEXT', ''],
@@ -1073,7 +1109,7 @@ async function pollInbox() {
     for (const sender of ALLOWED_SENDERS) {
       try {
         const msgs = await withTimeout(
-          connection.search(['UNSEEN', ['HEADER', 'FROM', sender]], fetchOptions),
+          connection.search([['SINCE', sinceDateStr], ['HEADER', 'FROM', sender]], fetchOptions),
           30000,
           `Search for ${sender} timed out (30s)`
         );
@@ -1102,26 +1138,33 @@ async function pollInbox() {
     }
 
     if (messages.length === 0) {
-      console.log(`[${getTs()}] 📭 0 unread emails found from ${c.green}${ALLOWED_SENDERS.join(', ')}${c.reset}. (Listening live every ${POLL_INTERVAL_SECONDS}s)`);
+      console.log(`[${getTs()}] 📭 0 emails found in the last 1 week from ${c.green}${ALLOWED_SENDERS.join(', ')}${c.reset}. (Listening live every ${POLL_INTERVAL_SECONDS}s)`);
     } else {
-      // Find unread messages that haven't been processed yet
+      // Filter out messages that haven't been processed yet, strictly ensuring date is within last 7 days
+      const oneWeekAgoMs = oneWeekAgo.getTime();
       const unprocessedMessages = messages.filter(item => {
         const uid = item.attributes?.uid;
-        return !processedUids.has(uid);
+        if (processedUids.has(uid)) return false;
+        // Verify internal date or attributes date if available
+        if (item.attributes?.date) {
+          const itemDate = new Date(item.attributes.date).getTime();
+          if (itemDate < oneWeekAgoMs) return false;
+        }
+        return true;
       });
 
-      // Sort by UID / date ascending so the newest emails are at the end, and slice the last 5
+      // Sort by UID / date ascending so the newest emails are at the end
       unprocessedMessages.sort((a, b) => {
         const uidA = a.attributes?.uid || 0;
         const uidB = b.attributes?.uid || 0;
         return uidA - uidB;
       });
-      const newMessages = unprocessedMessages.slice(-5);
+      const newMessages = unprocessedMessages;
 
       if (newMessages.length === 0) {
-        console.log(`[${getTs()}] 📭 All ${messages.length} unread email(s) from ${c.green}${TARGET_SENDER}${c.reset} are already processed and up to date.`);
+        console.log(`[${getTs()}] 📭 All ${messages.length} email(s) in the last 1 week from ${c.green}${TARGET_SENDER}${c.reset} are already processed and up to date.`);
       } else {
-        console.log(`[${getTs()}] ${c.magenta}${c.bold}📬 Found ${newMessages.length} unread email(s) (processing last 5) from ${TARGET_SENDER}! Processing into CRM:${c.reset}`);
+        console.log(`[${getTs()}] ${c.magenta}${c.bold}📬 Found ${newMessages.length} email(s) in the last 1 week from ${TARGET_SENDER}! Processing into CRM:${c.reset}`);
 
         for (let i = 0; i < newMessages.length; i++) {
           const item = newMessages[i];

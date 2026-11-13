@@ -368,9 +368,30 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
   const findBestCatalogMatch = (inquiryProductName) => {
     if (!inquiryProductName || !products || products.length === 0) return null;
     const query = inquiryProductName.toLowerCase().trim();
+    const queryNorm = query.replace(/[^a-z0-9]/g, '');
+
+    // Acronym / synonym pairs (e.g. Diesel Exhaust Fluid <-> DEF <-> Adblue)
+    const ACRONYMS = [
+      ['def', 'diesel exhaust fluid'],
+      ['def', 'disel exhaust fluid'],
+      ['adblue', 'diesel exhaust fluid'],
+      ['adblue', 'def']
+    ];
 
     // 1. Direct or Partial String Match
-    let matched = products.find(p => p.name.toLowerCase().includes(query) || query.includes(p.name.toLowerCase()));
+    let matched = products.find(p => {
+      const pName = p.name.toLowerCase();
+      const pNorm = pName.replace(/[^a-z0-9]/g, '');
+      if (pName.includes(query) || query.includes(pName) || pNorm.includes(queryNorm) || queryNorm.includes(pNorm)) {
+        return true;
+      }
+      for (const [shortForm, longForm] of ACRONYMS) {
+        const longNorm = longForm.replace(/[^a-z0-9]/g, '');
+        if ((queryNorm === shortForm || queryNorm.includes(shortForm)) && pNorm.includes(longNorm)) return true;
+        if (queryNorm.includes(longNorm) && (pNorm.includes(shortForm) || pName.split(/\s+/).includes(shortForm))) return true;
+      }
+      return false;
+    });
     if (matched) return { product: matched, matchType: 'Direct Catalog Match' };
 
     // 2. Keyword Search Match
