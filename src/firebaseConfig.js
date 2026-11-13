@@ -178,51 +178,101 @@ export const saveLeadToFirestore = async (userId, leadData) => {
 
 /**
  * Fetch all Email Buyer Product Requests from Firestore Database
+ * Automatically aggregates leads from the shared workspace AND scans across all historical
+ * user accounts via collectionGroup("leads") so that all past and present product inquiries
+ * are visible to every user who logs in!
  * Automatically filters & deletes items older than 7 days from the database.
  */
 export const fetchLeadsFromFirestore = async (userId) => {
   try {
     const wsId = resolveWorkspaceId(userId);
-    const leadsRef = collection(db, "users", wsId, "leads");
-    const q = query(leadsRef, orderBy("createdAt", "desc"));
-    const querySnapshot = await getDocs(q);
     const leads = [];
+    const seenIds = new Set();
+    const seenQueries = new Set();
     const now = new Date().getTime();
     const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
-
     const deletePromises = [];
 
-    querySnapshot.forEach((docSnap) => {
-      const data = docSnap.data();
-      const itemTimestamp = new Date(data.timestamp || data.createdAt).getTime();
+    // 1. Fetch leads from shared company workspace
+    try {
+      const leadsRef = collection(db, "users", wsId, "leads");
+      const q = query(leadsRef, orderBy("createdAt", "desc"));
+      const querySnapshot = await getDocs(q);
 
-      // Check if data is older than 7 days
-      if (now - itemTimestamp > SEVEN_DAYS_MS) {
-        // Automatically delete from Firestore Database
-        deletePromises.push(deleteDoc(doc(db, "users", wsId, "leads", docSnap.id)));
-      } else {
-        leads.push({ id: docSnap.id, ...data });
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        const itemTimestamp = new Date(data.timestamp || data.createdAt).getTime();
+
+        if (now - itemTimestamp > SEVEN_DAYS_MS) {
+          deletePromises.push(deleteDoc(doc(db, "users", wsId, "leads", docSnap.id)));
+        } else {
+          leads.push({ id: docSnap.id, ...data });
+          seenIds.add(docSnap.id);
+          if (data.query_id) seenQueries.add(String(data.query_id));
+        }
+      });
+    } catch (wsErr) {
+      console.warn("Shared leads fetch error:", wsErr.message);
+    }
+
+    // 2. Scan ALL historical inquiries across ANY account in Firestore using collectionGroup
+    try {
+      const allLeadsGroupRef = collectionGroup(db, "leads");
+      const groupSnap = await getDocs(allLeadsGroupRef);
+      const migratePromises = [];
+
+      groupSnap.forEach((docSnap) => {
+        const data = docSnap.data();
+        const itemTimestamp = new Date(data.timestamp || data.createdAt).getTime();
+
+        if (now - itemTimestamp > SEVEN_DAYS_MS) {
+          // expired
+          return;
+        }
+
+        const qId = data.query_id ? String(data.query_id) : null;
+        if (!seenIds.has(docSnap.id) && (!qId || !seenQueries.has(qId))) {
+          leads.push({ id: docSnap.id, ...data });
+          seenIds.add(docSnap.id);
+          if (qId) seenQueries.add(qId);
+
+          // Copy into shared company workspace so it permanently lives in the shared collection
+          migratePromises.push(
+            setDoc(doc(db, "users", wsId, "leads", docSnap.id), data, { merge: true })
+          );
+        }
+      });
+
+      if (migratePromises.length > 0) {
+        Promise.all(migratePromises).catch(() => {});
+        console.log(`📬 Unified ${migratePromises.length} historical inquiry lead(s) from previous accounts into the shared database.`);
       }
-    });
+    } catch (groupErr) {
+      console.warn("collectionGroup leads scan warning (rules or index):", groupErr.message);
+
+      // Fallback: Check individual user collection if different from shared workspace
+      if (userId && userId !== wsId) {
+        try {
+          const userLeadsRef = collection(db, "users", userId, "leads");
+          const userQ = query(userLeadsRef, orderBy("createdAt", "desc"));
+          const userSnap = await getDocs(userQ);
+          userSnap.forEach((docSnap) => {
+            const lData = docSnap.data();
+            const qId = lData.query_id ? String(lData.query_id) : null;
+            if (!seenIds.has(docSnap.id) && (!qId || !seenQueries.has(qId))) {
+              leads.push({ id: docSnap.id, ...lData });
+              seenIds.add(docSnap.id);
+              if (qId) seenQueries.add(qId);
+              setDoc(doc(db, "users", wsId, "leads", docSnap.id), lData).catch(() => {});
+            }
+          });
+        } catch (_) {}
+      }
+    }
 
     if (deletePromises.length > 0) {
       await Promise.all(deletePromises);
       console.log(`🧹 Auto-purged ${deletePromises.length} request(s) older than 7 days from database.`);
-    }
-
-    // Migration check: If shared workspace has no leads yet and user has legacy leads, load and migrate them
-    if (leads.length === 0 && userId && userId !== wsId) {
-      try {
-        const userLeadsRef = collection(db, "users", userId, "leads");
-        const userQ = query(userLeadsRef, orderBy("createdAt", "desc"));
-        const userSnap = await getDocs(userQ);
-        userSnap.forEach((docSnap) => {
-          const lData = docSnap.data();
-          leads.push({ id: docSnap.id, ...lData });
-          // Copy to shared collection
-          setDoc(doc(db, "users", wsId, "leads", docSnap.id), lData).catch(() => {});
-        });
-      } catch (_) {}
     }
 
     return { success: true, leads };
