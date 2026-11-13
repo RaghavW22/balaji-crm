@@ -50,6 +50,8 @@ import {
   updateProductInFirestore,
   fetchProductsFromFirestore,
   deleteProductFromFirestore,
+  subscribeProductsFromFirestore,
+  subscribeLeadsFromFirestore,
   clearAllSentRepliesFromFirestore,
   deleteSentReplyFromFirestore
 } from '../firebaseConfig';
@@ -258,6 +260,8 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
               );
               if (!alreadyExists) {
                 combinedLeads.unshift(lead);
+                // Also save newly arrived backend lead into shared Firestore so all logins see it in database
+                saveLeadToFirestore(user.uid, lead).catch(() => {});
               }
             }
           }
@@ -304,12 +308,55 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
   useEffect(() => {
     loadDashboardData();
 
+    // Real-time listener for Product Catalog changes across all users
+    let unsubProducts = () => {};
+    let unsubLeads = () => {};
+
+    if (user && user.uid) {
+      unsubProducts = subscribeProductsFromFirestore(user.uid, (liveProducts) => {
+        if (liveProducts && liveProducts.length > 0) {
+          setProducts(liveProducts);
+          // Keep backend cache in sync with updated live products
+          fetch(`${getBackendApiUrl()}/api/sync-products`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ products: liveProducts })
+          }).catch(() => {});
+        }
+      });
+
+      unsubLeads = subscribeLeadsFromFirestore(user.uid, (liveLeads) => {
+        if (liveLeads) {
+          const deletedIds = new Set(getDeletedLeadIds());
+          const activeLive = liveLeads.filter(l => 
+            !deletedIds.has(String(l.id)) && !deletedIds.has(String(l.query_id))
+          );
+          setInquiries(prev => {
+            // Merge live leads with any local leads
+            const map = new Map();
+            activeLive.forEach(l => map.set(l.query_id || l.id, l));
+            prev.forEach(l => {
+              const k = l.query_id || l.id;
+              if (!map.has(k) && !deletedIds.has(String(k))) {
+                map.set(k, l);
+              }
+            });
+            return Array.from(map.values());
+          });
+        }
+      });
+    }
+
     // Set up automated email lead polling loop (runs every 60 seconds / 1 minute)
     const intervalId = setInterval(() => {
       loadDashboardData();
     }, 60000);
 
-    return () => clearInterval(intervalId);
+    return () => {
+      clearInterval(intervalId);
+      unsubProducts();
+      unsubLeads();
+    };
   }, [isSettingsOpen, user]);
 
   const handleSignOut = async () => {
@@ -360,6 +407,12 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
             const activeLeads = apiData.leads.filter(l => 
               !deletedIds.has(String(l.id)) && !deletedIds.has(String(l.query_id))
             );
+            // Save fetched inquiry leads into Firestore so they are recorded in database
+            if (user && user.uid) {
+              activeLeads.forEach(lead => {
+                saveLeadToFirestore(user.uid, lead).catch(() => {});
+              });
+            }
             setInquiries(activeLeads);
             setFetchNotice({
               type: 'success',

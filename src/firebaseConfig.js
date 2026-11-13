@@ -22,7 +22,8 @@ import {
   deleteDoc,
   query,
   orderBy,
-  where
+  where,
+  onSnapshot
 } from "firebase/firestore";
 import { getAnalytics, isSupported } from "firebase/analytics";
 
@@ -419,6 +420,55 @@ export const deleteProductFromFirestore = async (userId, productId) => {
   } catch (error) {
     console.warn("Firestore product delete warning:", error.message);
     return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Subscribe in real-time to Products catalog updates in Firestore Database.
+ * When any user adds, edits, or removes a product, this triggers instantly
+ * so all other users' dashboards update without refreshing!
+ */
+export const subscribeProductsFromFirestore = (userId, callback) => {
+  try {
+    const wsId = resolveWorkspaceId(userId);
+    const productsRef = collection(db, "users", wsId, "products");
+    const q = query(productsRef, orderBy("createdAt", "desc"));
+    return onSnapshot(q, (snapshot) => {
+      const products = [];
+      snapshot.forEach((docSnap) => {
+        products.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      callback(products);
+    }, (error) => {
+      console.warn("Real-time products subscription notice:", error.message);
+    });
+  } catch (error) {
+    console.warn("Could not attach real-time products listener:", error.message);
+    return () => {};
+  }
+};
+
+/**
+ * Subscribe in real-time to Leads / Inquiries updates in Firestore Database.
+ * When any user or backend saves a lead, all dashboards reflect it in real-time!
+ */
+export const subscribeLeadsFromFirestore = (userId, callback) => {
+  try {
+    const wsId = resolveWorkspaceId(userId);
+    const leadsRef = collection(db, "users", wsId, "leads");
+    const q = query(leadsRef, orderBy("createdAt", "desc"));
+    return onSnapshot(q, (snapshot) => {
+      const leads = [];
+      snapshot.forEach((docSnap) => {
+        leads.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      callback(leads);
+    }, (error) => {
+      console.warn("Real-time leads subscription notice:", error.message);
+    });
+  } catch (error) {
+    console.warn("Could not attach real-time leads listener:", error.message);
+    return () => {};
   }
 };
 
