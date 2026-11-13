@@ -401,9 +401,13 @@ async function matchEnquiredProductsToCatalog(enquiredList = [], fallbackProduct
         }
       }
 
+      // Helper: stem word (e.g. "electrodes" -> "electrode", "paints" -> "paint")
+      const stemWord = w => (w || '').toLowerCase().replace(/s$/i, '').replace(/es$/i, '').replace(/ing$/i, '');
+
       for (const prod of allProducts) {
         const prodCleanNorm = stripForComparison(prod.name);
         const prodTokens = normalizeTokens(prod.name).split(/\s+/).filter(t => t.length > 1);
+        const prodStems = prodTokens.map(stemWord);
         const haystack = `${normalizeTokens(prod.name)} ${normalizeTokens(prod.group || '')} ${normalizeTokens(prod.specs)} ${normalizeTokens(prod.description)}`;
         const haystackCleanNorm = stripForComparison(haystack);
 
@@ -419,40 +423,46 @@ async function matchEnquiredProductsToCatalog(enquiredList = [], fallbackProduct
           }
         }
 
-        // 1. Exact match ignoring case, spaces, and punctuation (e.g. "Industrial Paint" vs "IndustrialPaint" vs "industrial paint")
+        // 1. Exact match ignoring case, spaces, and punctuation
         if (prodCleanNorm === enqCleanNorm && enqCleanNorm.length > 0) {
           score += 100;
         } 
-        // 2. One completely contains the other without space/punctuation issues
+        // 2. Substring containment: Handles generic inquiries (e.g. "Electrode" in "D&H Secheron Hardfacing Electrode"
+        // or "Diesel Exhaust Fluid" in "Tata Genuine DEF (Diesel Exhaust Fluid)")
         else if (prodCleanNorm.includes(enqCleanNorm) || enqCleanNorm.includes(prodCleanNorm)) {
           if (prodCleanNorm.startsWith(enqCleanNorm) || enqCleanNorm.startsWith(prodCleanNorm)) {
-            score += 80;
+            score += 85;
           } else {
-            score += 65;
+            score += 75;
           }
         }
-        // 3. Haystack (specs/description) contains the enquired product name
+        // 3. Haystack (specs/description/group) contains the enquired product name
         else if (haystackCleanNorm.includes(enqCleanNorm)) {
-          score += 40;
+          score += 55;
         }
 
-        // 4. Token-level matching (handles word reordering, camelCase, typos)
+        // 4. Token & Stem matching (handles singular/plural, brand prefixes, extra specs)
         let matchedTokensCount = 0;
         for (const token of enqTokens) {
-          if (prodTokens.includes(token)) {
-            score += 15;
+          const tStem = stemWord(token);
+          if (prodTokens.includes(token) || prodCleanNorm.includes(token)) {
+            score += 20;
+            matchedTokensCount++;
+          } else if (prodStems.includes(tStem) || prodCleanNorm.includes(tStem)) {
+            score += 18;
             matchedTokensCount++;
           } else if (prodTokens.some(pt => wordsSimilar(token, pt))) {
-            score += 12;
+            score += 15;
             matchedTokensCount++;
-          } else if (haystack.includes(token)) {
-            score += 4;
+          } else if (haystack.includes(token) || haystack.includes(tStem)) {
+            score += 10;
+            matchedTokensCount++;
           }
         }
 
         // Bonus if all tokens in the enquiry match
         if (enqTokens.length > 0 && matchedTokensCount === enqTokens.length) {
-          score += 25;
+          score += 30;
         }
 
         if (score > bestScore && score >= 15) {

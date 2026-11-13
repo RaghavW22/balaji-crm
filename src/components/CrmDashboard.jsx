@@ -370,6 +370,8 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
     const query = inquiryProductName.toLowerCase().trim();
     const queryNorm = query.replace(/[^a-z0-9]/g, '');
 
+    const stemWord = w => (w || '').toLowerCase().replace(/s$/i, '').replace(/es$/i, '').replace(/ing$/i, '');
+
     // Acronym / synonym pairs (e.g. Diesel Exhaust Fluid <-> DEF <-> Adblue)
     const ACRONYMS = [
       ['def', 'diesel exhaust fluid'],
@@ -378,11 +380,14 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
       ['adblue', 'def']
     ];
 
-    // 1. Direct or Partial String Match
+    // 1. Direct or Partial Substring Match (handles e.g. "electrode" in "D&H Secheron Hardfacing Electrode"
+    // or "paint" in "Asian Paints Apex Ultima")
     let matched = products.find(p => {
       const pName = p.name.toLowerCase();
       const pNorm = pName.replace(/[^a-z0-9]/g, '');
-      if (pName.includes(query) || query.includes(pName) || pNorm.includes(queryNorm) || queryNorm.includes(pNorm)) {
+      const pHaystack = `${pName} ${(p.group || '').toLowerCase()} ${(p.specs || '').toLowerCase()} ${(p.description || '').toLowerCase()}`;
+
+      if (pName.includes(query) || query.includes(pName) || pNorm.includes(queryNorm) || queryNorm.includes(pNorm) || pHaystack.includes(query)) {
         return true;
       }
       for (const [shortForm, longForm] of ACRONYMS) {
@@ -394,15 +399,17 @@ const CrmDashboard = ({ user, theme, toggleTheme, onLogout }) => {
     });
     if (matched) return { product: matched, matchType: 'Direct Catalog Match' };
 
-    // 2. Keyword Search Match
+    // 2. Token & Stem Search Match (e.g. "electrodes" -> matches "electrode")
     const tokens = query.split(/\s+/).filter(t => t.length > 2);
     for (const prod of products) {
       const name = prod.name.toLowerCase();
+      const pTokens = name.split(/\s+/);
       const specs = (prod.specs || '').toLowerCase();
       const desc = (prod.description || '').toLowerCase();
 
       for (const token of tokens) {
-        if (name.includes(token) || specs.includes(token) || desc.includes(token)) {
+        const tStem = stemWord(token);
+        if (name.includes(token) || name.includes(tStem) || specs.includes(token) || desc.includes(token) || pTokens.some(pt => stemWord(pt) === tStem)) {
           return { product: prod, matchType: 'Keyword Match' };
         }
       }
